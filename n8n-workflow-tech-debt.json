@@ -1,0 +1,152 @@
+{
+    "name": "Tech Debt Analysis Workflow",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "enrichment-tech",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "webhook-trigger",
+            "name": "Webhook Trigger",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "={{ $json.website }}",
+                "options": {
+                    "timeout": 30000
+                }
+            },
+            "id": "fetch-website",
+            "name": "Fetch Website",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": "gpt-4-turbo-preview",
+                "messages": {
+                    "values": [
+                        {
+                            "content": "=Analyze this website HTML for technical issues:\n\n{{ $json.data }}\n\nProvide:\n1. Tech stack detected\n2. Performance issues (slow loading, large images)\n3. SEO problems (missing meta tags, poor structure)\n4. Security concerns\n\nReturn as JSON:\n{\n  \"tech_stack\": \"...\",\n  \"issues\": [...],\n  \"score\": 0-100,\n  \"pain_points\": {...}\n}"
+                        }
+                    ]
+                }
+            },
+            "id": "ai-analysis",
+            "name": "AI Analysis",
+            "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+            "typeVersion": 1,
+            "position": [
+                650,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "=https://your-backend.com/api/webhooks/enrichment/{{ $('Webhook Trigger').item.json.lead_id }}",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "pain_points",
+                            "value": "={{ JSON.parse($json.message.content).pain_points }}"
+                        },
+                        {
+                            "name": "score",
+                            "value": "={{ JSON.parse($json.message.content).score }}"
+                        },
+                        {
+                            "name": "status",
+                            "value": "enriched"
+                        }
+                    ]
+                }
+            },
+            "id": "update-lead",
+            "name": "Update Lead",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                850,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ { \"status\": \"success\", \"lead_id\": $('Webhook Trigger').item.json.lead_id } }}"
+            },
+            "id": "respond",
+            "name": "Respond to Webhook",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                1050,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Website",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Website": {
+            "main": [
+                [
+                    {
+                        "node": "AI Analysis",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Analysis": {
+            "main": [
+                [
+                    {
+                        "node": "Update Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Lead": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Webhook",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {},
+    "staticData": null,
+    "tags": [],
+    "pinData": {}
+}
