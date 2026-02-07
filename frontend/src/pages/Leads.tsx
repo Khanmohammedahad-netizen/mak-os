@@ -24,11 +24,11 @@ interface Lead {
 }
 
 const COLUMNS = [
-    { id: 'new', label: 'New', color: 'zinc' },
-    { id: 'vetted', label: 'Vetted', color: 'blue' },
-    { id: 'enriching', label: 'Enriching', color: 'purple' },
-    { id: 'enriched', label: 'Enriched', color: 'green' },
-    { id: 'contacted', label: 'Contacted', color: 'orange' },
+    { id: 'new', label: 'New' },
+    { id: 'vetted', label: 'Vetted' },
+    { id: 'enriching', label: 'Enriching' },
+    { id: 'enriched', label: 'Enriched' },
+    { id: 'contacted', label: 'Contacted' },
 ];
 
 export function Leads() {
@@ -123,7 +123,6 @@ export function Leads() {
                             key={column.id}
                             id={column.id}
                             label={column.label}
-                            color={column.color}
                             leads={getLeadsByStatus(column.id)}
                         />
                     ))}
@@ -140,11 +139,10 @@ export function Leads() {
 interface KanbanColumnProps {
     id: string;
     label: string;
-    color: string;
     leads: Lead[];
 }
 
-function KanbanColumn({ id, label, color, leads }: KanbanColumnProps) {
+function KanbanColumn({ id, label, leads }: KanbanColumnProps) {
     const { setNodeRef } = useDroppable({ id });
 
     return (
