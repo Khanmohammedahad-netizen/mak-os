@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { leadsApi, agentsApi } from '../lib/api';
-import { TrendingUp, Users, Zap, DollarSign } from 'lucide-react';
+import { leadsApi } from '../lib/api';
+import { TrendingUp, Users, DollarSign, Target } from 'lucide-react';
 
 interface Stats {
     totalLeads: number;
@@ -70,7 +70,7 @@ export function CommandCenter() {
                 <StatCard
                     title="Active Agents"
                     value={stats.activeAgents}
-                    icon={Zap}
+                    icon={Target}
                     trend="100%"
                     color="purple"
                 />

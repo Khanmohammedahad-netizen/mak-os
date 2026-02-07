@@ -35,7 +35,6 @@ const AGENTS = [
 
 export function Agents() {
     const [logs, setLogs] = useState<AgentLog[]>([]);
-    const [loading, setLoading] = useState(false);
     const [executing, setExecuting] = useState<string | null>(null);
 
     useEffect(() => {

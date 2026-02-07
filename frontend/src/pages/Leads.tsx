@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { leadsApi } from '../lib/api';
 import {
     DndContext,
-    DragEndEvent,
     DragOverlay,
-    DragStartEvent,
     PointerSensor,
     useSensor,
     useSensors,
+    useDroppable,
+    useDraggable,
 } from '@dnd-kit/core';
-import { Building2, Globe, MapPin, TrendingUp } from 'lucide-react';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { Globe, MapPin, TrendingUp } from 'lucide-react';
 
 interface Lead {
     id: number;
@@ -253,18 +254,4 @@ function LeadCard({ lead, isDragging = false }: LeadCardProps) {
     );
 }
 
-// Hook implementations
-function useDroppable({ id }: { id: string }) {
-    const { setNodeRef } = { setNodeRef: () => { } }; // Simplified
-    return { setNodeRef };
-}
 
-function useDraggable({ id }: { id: number }) {
-    const attributes = {};
-    const listeners = {};
-    const setNodeRef = () => { };
-    const transform = null;
-    const isDragging = false;
-
-    return { attributes, listeners, setNodeRef, transform, isDragging };
-}
