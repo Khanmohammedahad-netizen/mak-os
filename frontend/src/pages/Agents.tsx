@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { agentsApi } from '../lib/api';
-import { Play, StopCircle, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Play, Clock, CheckCircle, XCircle } from 'lucide-react';
 
 interface AgentLog {
     id: number;
