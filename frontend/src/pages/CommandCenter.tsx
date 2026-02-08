@@ -64,28 +64,24 @@ export function CommandCenter() {
                     title="Total Leads"
                     value={stats.totalLeads}
                     icon={Users}
-                    trend="+12%"
                     color="blue"
                 />
                 <StatCard
                     title="Active Agents"
                     value={stats.activeAgents}
                     icon={Target}
-                    trend="100%"
                     color="purple"
                 />
                 <StatCard
                     title="Pipeline Value"
                     value={`$${(stats.pipelineValue / 1000).toFixed(0)}K`}
                     icon={DollarSign}
-                    trend="+8%"
                     color="green"
                 />
                 <StatCard
                     title="Conversion Rate"
                     value={`${stats.conversionRate.toFixed(1)}%`}
                     icon={TrendingUp}
-                    trend="+2.4%"
                     color="orange"
                 />
             </div>
@@ -97,11 +93,11 @@ interface StatCardProps {
     title: string;
     value: string | number;
     icon: React.ComponentType<{ size: number; className?: string }>;
-    trend: string;
+    trend?: string; // Optional now
     color: 'blue' | 'purple' | 'green' | 'orange';
 }
 
-function StatCard({ title, value, icon: Icon, trend, color }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
     const colorClasses = {
         blue: 'from-blue-500/20 to-blue-600/20 border-blue-500/30',
         purple: 'from-purple-500/20 to-purple-600/20 border-purple-500/30',
@@ -117,10 +113,6 @@ function StatCard({ title, value, icon: Icon, trend, color }: StatCardProps) {
                     <p className="text-3xl font-bold mt-2">{value}</p>
                 </div>
                 <Icon size={24} className="text-zinc-400" />
-            </div>
-            <div className="mt-4 flex items-center gap-1 text-xs">
-                <span className="text-green-400">{trend}</span>
-                <span className="text-zinc-500">vs last month</span>
             </div>
         </div>
     );
