@@ -1,0 +1,275 @@
+{
+    "name": "MAK Lead Discovery - Multi-Region",
+    "nodes": [
+        {
+            "parameters": {
+                "path": "discover-leads",
+                "responseMode": "onReceived",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1.1,
+            "position": [
+                240,
+                400
+            ],
+            "webhookId": "discover-leads"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "regions",
+                            "name": "regions",
+                            "value": "=[\n  {\"name\": \"London\", \"country\": \"UK\", \"bbox\": \"51.4074,-0.2278,51.6074,0.0722\"},\n  {\"name\": \"New York\", \"country\": \"USA\", \"bbox\": \"40.6128,-74.1060,40.8128,-73.9060\"},\n  {\"name\": \"Dubai\", \"country\": \"UAE\", \"bbox\": \"25.1048,55.1708,25.3048,55.3708\"}\n]",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Set Regions",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                460,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "regions",
+                "options": {}
+            },
+            "name": "Loop Regions",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                680,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://overpass-api.de/api/interpreter",
+                "method": "POST",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "value": "=[out:json];(node[\"amenity\"=\"restaurant\"]({{ $json.bbox }});node[\"amenity\"=\"cafe\"]({{ $json.bbox }}););out body 8;"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Get Businesses",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "elements",
+                "options": {}
+            },
+            "name": "Split Businesses",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                1120,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "company_name",
+                            "name": "company_name",
+                            "value": "={{ $json.tags.name || 'Unknown Business' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "location",
+                            "name": "location",
+                            "value": "={{ $('Loop Regions').item.json.name }}, {{ $('Loop Regions').item.json.country }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "industry",
+                            "name": "industry",
+                            "value": "={{ $json.tags.amenity === 'restaurant' ? 'Restaurant' : 'Cafe' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "phone",
+                            "name": "phone",
+                            "value": "={{ $json.tags.phone || $json.tags['contact:phone'] || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "website",
+                            "name": "website",
+                            "value": "={{ $json.tags.website || $json.tags['contact:website'] || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "email",
+                            "name": "email",
+                            "value": "={{ $json.tags.email || $json.tags['contact:email'] || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "source",
+                            "name": "source",
+                            "value": "openstreetmap",
+                            "type": "string"
+                        },
+                        {
+                            "id": "status",
+                            "name": "status",
+                            "value": "new",
+                            "type": "string"
+                        },
+                        {
+                            "id": "priority",
+                            "name": "priority",
+                            "value": "medium",
+                            "type": "string"
+                        },
+                        {
+                            "id": "employee_count",
+                            "name": "employee_count",
+                            "value": 10,
+                            "type": "number"
+                        },
+                        {
+                            "id": "notes",
+                            "name": "notes",
+                            "value": "Discovered from OpenStreetMap",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Format Lead",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                1340,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://mak-os.onrender.com/api/leads",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json }}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "POST to MAK OS",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1560,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Set Regions",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Set Regions": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Regions",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Regions": {
+            "main": [
+                [
+                    {
+                        "node": "Get Businesses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Split Businesses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Format Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Lead": {
+            "main": [
+                [
+                    {
+                        "node": "POST to MAK OS",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {}
+}

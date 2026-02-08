@@ -130,19 +130,19 @@ export function Leads() {
     }
 
     return (
-        <div className="p-8 h-full flex flex-col">
-            <div className="mb-8 flex items-center justify-between">
+        <div className="p-4 sm:p-6 lg:p-8 h-full flex flex-col">
+            <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold">Leads Pipeline</h1>
-                    <p className="text-zinc-400 mt-2">Drag and drop leads between stages</p>
+                    <h1 className="text-2xl sm:text-3xl font-bold">Leads Pipeline</h1>
+                    <p className="text-zinc-400 mt-2 text-sm sm:text-base">Drag and drop leads between stages</p>
                     <p className="text-sm text-zinc-500 mt-1">{leads.length} total leads</p>
                 </div>
                 <button
                     onClick={discoverLeads}
                     disabled={discovering}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center gap-2 transition-all"
+                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center gap-2 transition-all text-sm sm:text-base w-full sm:w-auto justify-center"
                 >
-                    <svg className={`w-5 h-5 ${discovering ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
+                    <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${discovering ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -155,7 +155,7 @@ export function Leads() {
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
-                <div className="flex-1 flex gap-4 overflow-x-auto pb-4">
+                <div className="flex-1 flex gap-3 sm:gap-4 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
                     {COLUMNS.map(column => (
                         <KanbanColumn
                             key={column.id}
@@ -186,24 +186,24 @@ function KanbanColumn({ id, label, leads }: KanbanColumnProps) {
     return (
         <div
             ref={setNodeRef}
-            className="flex-shrink-0 w-80 bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col"
+            className="flex-shrink-0 w-72 sm:w-80 lg:w-[340px] bg-zinc-950 rounded-xl border border-zinc-800 flex flex-col min-w-[280px]"
         >
-            <div className="p-4 border-b border-zinc-800">
+            <div className="p-3 sm:p-4 border-b border-zinc-800">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-lg">{label}</h3>
-                    <span className="text-sm text-zinc-500 bg-zinc-900 px-2 py-1 rounded">
+                    <h3 className="font-bold text-base sm:text-lg">{label}</h3>
+                    <span className="text-xs sm:text-sm text-zinc-500 bg-zinc-900 px-2 py-1 rounded">
                         {leads.length}
                     </span>
                 </div>
             </div>
 
-            <div className="flex-1 p-3 space-y-3 overflow-y-auto">
+            <div className="flex-1 p-2 sm:p-3 space-y-2 sm:space-y-3 overflow-y-auto">
                 {leads.map(lead => (
                     <DraggableLeadCard key={lead.id} lead={lead} />
                 ))}
 
                 {leads.length === 0 && (
-                    <div className="text-center text-zinc-600 text-sm py-8">
+                    <div className="text-center text-zinc-600 text-xs sm:text-sm py-6 sm:py-8">
                         No leads in this stage
                     </div>
                 )}

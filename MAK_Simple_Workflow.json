@@ -1,0 +1,205 @@
+{
+  "name": "MAK Lead Discovery - Production",
+  "nodes": [
+    {
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        250,
+        500
+      ],
+      "parameters": {
+        "path": "lead-discovery",
+        "responseMode": "lastNode",
+        "httpMethod": "POST"
+      },
+      "webhookId": "lead-discovery"
+    },
+    {
+      "name": "Initialize Regions",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        500,
+        500
+      ],
+      "parameters": {
+        "jsCode": "const regions = [\n  {region: 'UK', lat: 51.5074, lon: -0.1278, city: 'London', jurisdiction: 'gb'},\n  {region: 'USA', lat: 40.7128, lon: -74.0060, city: 'New York', jurisdiction: 'us_ny'},\n  {region: 'UAE', lat: 25.2048, lon: 55.2708, city: 'Dubai', jurisdiction: 'ae'}\n];\nconst input = $input.first().json;\nif (input && input.region) {\n  return regions.filter(r => r.region.toLowerCase() === input.region.toLowerCase()).map(r => ({json: r}));\n}\nreturn regions.map(r => ({json: r}));"
+      }
+    },
+    {
+      "name": "Loop Regions",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        750,
+        500
+      ],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "name": "OpenStreetMap Overpass",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1000,
+        500
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://overpass-api.de/api/interpreter",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "data",
+              "value": "=[out:json];(node[\"amenity\"=\"restaurant\"](around:10000,{{$json.lat}},{{$json.lon}});node[\"amenity\"=\"cafe\"](around:10000,{{$json.lat}},{{$json.lon}}););out body 12;"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "name": "Parse OSM",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1250,
+        500
+      ],
+      "parameters": {
+        "jsCode": "const elements = $json.elements || [];\nconst parsed = [];\nelements.forEach(place => {\n  const tags = place.tags || {};\n  if (tags.name) {\n    parsed.push({\n      company_name: tags.name,\n      location: `${tags['addr:city'] || $('Loop Regions').item.json.city}, ${$('Loop Regions').item.json.region}`,\n      industry: tags.amenity === 'restaurant' ? 'restaurant' : 'cafe',\n      region: $('Loop Regions').item.json.region,\n      phone: tags.phone || tags['contact:phone'] || null,\n      website: tags.website || tags['contact:website'] || null,\n      email: tags.email || tags['contact:email'] || null,\n      source: 'openstreetmap'\n    });\n  }\n});\nreturn parsed.map(p => ({json: p}));"
+      }
+    },
+    {
+      "name": "Format for Backend",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1500,
+        500
+      ],
+      "parameters": {
+        "jsCode": "return [{json: {\n  company_name: $json.company_name,\n  website: $json.website,\n  email: $json.email,\n  phone: $json.phone,\n  industry: $json.industry,\n  location: $json.location,\n  employee_count: 10,\n  status: 'new',\n  priority: 'medium',\n  pain_points: 'Manual operations',\n  notes: `Discovered from ${$json.source}`,\n  source: $json.source\n}}];"
+      }
+    },
+    {
+      "name": "POST to MAK OS",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1750,
+        500
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://mak-os.onrender.com/api/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Success",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        2000,
+        500
+      ],
+      "parameters": {
+        "jsCode": "console.log('✅ Lead added:', $json.company_name); return [$input];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Initialize Regions"
+          }
+        ]
+      ]
+    },
+    "Initialize Regions": {
+      "main": [
+        [
+          {
+            "node": "Loop Regions"
+          }
+        ]
+      ]
+    },
+    "Loop Regions": {
+      "main": [
+        [
+          {
+            "node": "OpenStreetMap Overpass"
+          }
+        ]
+      ]
+    },
+    "OpenStreetMap Overpass": {
+      "main": [
+        [
+          {
+            "node": "Parse OSM"
+          }
+        ]
+      ]
+    },
+    "Parse OSM": {
+      "main": [
+        [
+          {
+            "node": "Format for Backend"
+          }
+        ]
+      ]
+    },
+    "Format for Backend": {
+      "main": [
+        [
+          {
+            "node": "POST to MAK OS"
+          }
+        ]
+      ]
+    },
+    "POST to MAK OS": {
+      "main": [
+        [
+          {
+            "node": "Success"
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

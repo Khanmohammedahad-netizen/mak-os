@@ -1,0 +1,234 @@
+{
+    "name": "MAK Lead Discovery - Simple & Working",
+    "nodes": [
+        {
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "position": [
+                250,
+                300
+            ],
+            "parameters": {
+                "path": "discover-leads",
+                "httpMethod": "POST",
+                "responseMode": "onReceived"
+            },
+            "webhookId": "discover-leads"
+        },
+        {
+            "name": "Get UK Businesses",
+            "type": "n8n-nodes-base.httpRequest",
+            "position": [
+                500,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "https://overpass-api.de/api/interpreter",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "value": "[out:json];(node[\"amenity\"=\"restaurant\"](around:10000,51.5074,-0.1278);node[\"amenity\"=\"cafe\"](around:10000,51.5074,-0.1278););out body 15;"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 15000
+                }
+            }
+        },
+        {
+            "name": "Extract Leads",
+            "type": "n8n-nodes-base.set",
+            "position": [
+                750,
+                300
+            ],
+            "parameters": {
+                "mode": "manual",
+                "duplicateItem": false,
+                "assignments": {
+                    "assignments": [
+                        {
+                            "name": "raw_data",
+                            "value": "={{ $json }}",
+                            "type": "object"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Loop Businesses",
+            "type": "n8n-nodes-base.splitOut",
+            "position": [
+                1000,
+                300
+            ],
+            "parameters": {
+                "fieldName": "raw_data.elements"
+            }
+        },
+        {
+            "name": "Format Lead",
+            "type": "n8n-nodes-base.set",
+            "position": [
+                1250,
+                300
+            ],
+            "parameters": {
+                "mode": "manual",
+                "duplicateItem": false,
+                "assignments": {
+                    "assignments": [
+                        {
+                            "name": "company_name",
+                            "value": "={{ $json.tags?.name || 'Unknown Business' }}",
+                            "type": "string"
+                        },
+                        {
+                            "name": "location",
+                            "value": "={{ $json.tags?.['addr:city'] || 'London' }}, UK",
+                            "type": "string"
+                        },
+                        {
+                            "name": "industry",
+                            "value": "={{ $json.tags?.amenity || 'business' }}",
+                            "type": "string"
+                        },
+                        {
+                            "name": "phone",
+                            "value": "={{ $json.tags?.phone || $json.tags?.['contact:phone'] || null }}",
+                            "type": "string"
+                        },
+                        {
+                            "name": "website",
+                            "value": "={{ $json.tags?.website || $json.tags?.['contact:website'] || null }}",
+                            "type": "string"
+                        },
+                        {
+                            "name": "email",
+                            "value": "={{ $json.tags?.email || $json.tags?.['contact:email'] || null }}",
+                            "type": "string"
+                        },
+                        {
+                            "name": "source",
+                            "value": "openstreetmap",
+                            "type": "string"
+                        },
+                        {
+                            "name": "status",
+                            "value": "new",
+                            "type": "string"
+                        },
+                        {
+                            "name": "priority",
+                            "value": "medium",
+                            "type": "string"
+                        },
+                        {
+                            "name": "employee_count",
+                            "value": "10",
+                            "type": "number"
+                        },
+                        {
+                            "name": "pain_points",
+                            "value": "Manual operations, needs automation",
+                            "type": "string"
+                        },
+                        {
+                            "name": "notes",
+                            "value": "Discovered via OpenStreetMap",
+                            "type": "string"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "POST to MAK OS",
+            "type": "n8n-nodes-base.httpRequest",
+            "position": [
+                1500,
+                300
+            ],
+            "parameters": {
+                "method": "POST",
+                "url": "https://mak-os.onrender.com/api/leads",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json }}",
+                "options": {
+                    "timeout": 10000,
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Get UK Businesses"
+                    }
+                ]
+            ]
+        },
+        "Get UK Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Leads"
+                    }
+                ]
+            ]
+        },
+        "Extract Leads": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Businesses"
+                    }
+                ]
+            ]
+        },
+        "Loop Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Format Lead"
+                    }
+                ]
+            ]
+        },
+        "Format Lead": {
+            "main": [
+                [
+                    {
+                        "node": "POST to MAK OS"
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

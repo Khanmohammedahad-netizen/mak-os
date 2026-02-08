@@ -1,0 +1,476 @@
+{
+    "name": "MAK Lead Discovery - Production (Community Edition)",
+    "nodes": [
+        {
+            "parameters": {
+                "path": "discover-leads",
+                "responseMode": "onReceived"
+            },
+            "name": "Webhook Trigger",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1.1,
+            "position": [
+                240,
+                500
+            ],
+            "webhookId": "discover-leads"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "regions",
+                            "name": "regions",
+                            "value": "=[\n  {\"name\": \"London\", \"country\": \"UK\", \"near\": \"London, UK\"},\n  {\"name\": \"New York\", \"country\": \"USA\", \"near\": \"New York, USA\"},\n  {\"name\": \"Dubai\", \"country\": \"UAE\", \"near\": \"Dubai, UAE\"}\n]",
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "name": "Set Regions",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                460,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "regions"
+            },
+            "name": "Loop Regions",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                680,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://overpass-api.de/api/interpreter",
+                "method": "POST",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "value": "=[out:json];(node[\"amenity\"=\"restaurant\"](around:8000,{{ $json.name === 'London' ? '51.5074,-0.1278' : $json.name === 'New York' ? '40.7128,-74.0060' : '25.2048,55.2708' }}););out body 5;"
+                        }
+                    ]
+                }
+            },
+            "name": "OpenStreetMap (Free Primary)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                400
+            ],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "url": "https://google.serper.dev/search",
+                "method": "POST",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"q\": \"restaurants in {{ $json.name }}\",\n  \"num\": 5\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "Serper Fallback",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                600
+            ],
+            "continueOnFail": true,
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "serper_api_credentials",
+                    "name": "Serper API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combinationMode": "mergeByPosition"
+            },
+            "name": "Merge Sources",
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3,
+            "position": [
+                1120,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "elements",
+                "include": "noOtherFields"
+            },
+            "name": "Split Businesses",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                1340,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "amount": 1,
+                "unit": "seconds"
+            },
+            "name": "Wait (Rate Limit)",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1.1,
+            "position": [
+                1560,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=AIzaSyDQomWl96ZBOofTNx4i-zMN9dyRBq5c7_w",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"Analyze {{ $json.tags?.name || 'this business' }}. List 3 automation opportunities.\"\n    }]\n  }]\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "Gemini AI Analysis",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1780,
+                400
+            ],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "url": "https://api.groq.com/openai/v1/chat/completions",
+                "method": "POST",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"mixtral-8x7b-32768\",\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Create a personalized outreach hook for {{ $json.tags?.name || 'a business' }}\"\n  }]\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "Groq Personalization",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1780,
+                600
+            ],
+            "continueOnFail": true,
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "groq_api_credentials",
+                    "name": "Groq API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "mode": "combine",
+                "combinationMode": "mergeByPosition"
+            },
+            "name": "Combine AI Results",
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 3,
+            "position": [
+                2000,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "company_name",
+                            "name": "company_name",
+                            "value": "={{ $('Split Businesses').item.json.tags?.name || 'Unknown Business' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "location",
+                            "name": "location",
+                            "value": "={{ $('Loop Regions').item.json.name }}, {{ $('Loop Regions').item.json.country }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "industry",
+                            "name": "industry",
+                            "value": "Restaurant",
+                            "type": "string"
+                        },
+                        {
+                            "id": "phone",
+                            "name": "phone",
+                            "value": "={{ $('Split Businesses').item.json.tags?.phone || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "website",
+                            "name": "website",
+                            "value": "={{ $('Split Businesses').item.json.tags?.website || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "email",
+                            "name": "email",
+                            "value": "={{ $('Split Businesses').item.json.tags?.email || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "source",
+                            "name": "source",
+                            "value": "openstreetmap",
+                            "type": "string"
+                        },
+                        {
+                            "id": "status",
+                            "name": "status",
+                            "value": "new",
+                            "type": "string"
+                        },
+                        {
+                            "id": "priority",
+                            "name": "priority",
+                            "value": "high",
+                            "type": "string"
+                        },
+                        {
+                            "id": "employee_count",
+                            "name": "employee_count",
+                            "value": 15,
+                            "type": "number"
+                        },
+                        {
+                            "id": "notes",
+                            "name": "notes",
+                            "value": "AI-enhanced lead with personalization",
+                            "type": "string"
+                        }
+                    ]
+                }
+            },
+            "name": "Format for MAK OS",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                2220,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://mak-os.onrender.com/api/leads",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json }}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "POST to MAK OS",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2440,
+                500
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Set Regions"
+                    }
+                ]
+            ]
+        },
+        "Set Regions": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Regions"
+                    }
+                ]
+            ]
+        },
+        "Loop Regions": {
+            "main": [
+                [
+                    {
+                        "node": "OpenStreetMap (Free Primary)"
+                    },
+                    {
+                        "node": "Serper Fallback"
+                    }
+                ]
+            ]
+        },
+        "OpenStreetMap (Free Primary)": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Sources",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Serper Fallback": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Sources",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Merge Sources": {
+            "main": [
+                [
+                    {
+                        "node": "Split Businesses"
+                    }
+                ]
+            ]
+        },
+        "Split Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Wait (Rate Limit)"
+                    }
+                ]
+            ]
+        },
+        "Wait (Rate Limit)": {
+            "main": [
+                [
+                    {
+                        "node": "Gemini AI Analysis"
+                    },
+                    {
+                        "node": "Groq Personalization"
+                    }
+                ]
+            ]
+        },
+        "Gemini AI Analysis": {
+            "main": [
+                [
+                    {
+                        "node": "Combine AI Results",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Groq Personalization": {
+            "main": [
+                [
+                    {
+                        "node": "Combine AI Results",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "Combine AI Results": {
+            "main": [
+                [
+                    {
+                        "node": "Format for MAK OS"
+                    }
+                ]
+            ]
+        },
+        "Format for MAK OS": {
+            "main": [
+                [
+                    {
+                        "node": "POST to MAK OS"
+                    }
+                ]
+            ]
+        }
+    }
+}
