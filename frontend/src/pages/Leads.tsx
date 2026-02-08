@@ -35,6 +35,7 @@ export function Leads() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [activeId, setActiveId] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
+    const [discovering, setDiscovering] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -58,6 +59,29 @@ export function Leads() {
             setLoading(false);
         }
     };
+
+    const discoverLeads = async () => {
+        setDiscovering(true);
+        try {
+            const response = await fetch('https://mak-n8n.onrender.com/webhook/discover-leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ region: 'UK' })
+            });
+
+            if (response.ok) {
+                // Wait a moment then refresh leads
+                setTimeout(() => {
+                    fetchLeads();
+                }, 3000);
+            }
+        } catch (error) {
+            console.error('Failed to discover leads:', error);
+        } finally {
+            setDiscovering(false);
+        }
+    };
+
 
     const handleDragStart = (event: DragStartEvent) => {
         setActiveId(event.active.id as number);
@@ -107,9 +131,23 @@ export function Leads() {
 
     return (
         <div className="p-8 h-full flex flex-col">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold">Leads Pipeline</h1>
-                <p className="text-zinc-400 mt-2">Drag and drop leads between stages</p>
+            <div className="mb-8 flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold">Leads Pipeline</h1>
+                    <p className="text-zinc-400 mt-2">Drag and drop leads between stages</p>
+                    <p className="text-sm text-zinc-500 mt-1">{leads.length} total leads</p>
+                </div>
+                <button
+                    onClick={discoverLeads}
+                    disabled={discovering}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center gap-2 transition-all"
+                >
+                    <svg className={`w-5 h-5 ${discovering ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {discovering ? 'Discovering...' : 'Discover Leads'}
+                </button>
             </div>
 
             <DndContext
