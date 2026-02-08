@@ -14,12 +14,6 @@ interface AgentLog {
 
 const AGENTS = [
     {
-        id: 'discovery',
-        name: 'Discovery Agent',
-        description: 'Ingest leads from external sources',
-        color: 'blue'
-    },
-    {
         id: 'vetting',
         name: 'Vetting Agent',
         description: 'Apply business rules to filter leads',
@@ -32,6 +26,7 @@ const AGENTS = [
         color: 'green'
     },
 ];
+
 
 export function Agents() {
     const [logs, setLogs] = useState<AgentLog[]>([]);
@@ -73,10 +68,39 @@ export function Agents() {
         <div className="p-8">
             <div className="mb-8">
                 <h1 className="text-3xl font-bold">Agent Control</h1>
-                <p className="text-zinc-400 mt-2">Manually trigger agents or view execution history</p>
+                <p className="text-zinc-400 mt-2">Manual vetting and analysis agents (n8n handles discovery automatically)</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* n8n Discovery Status */}
+            <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-xl p-6 mb-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <span className="text-2xl">🤖</span>
+                            Lead Discovery (n8n Workflow)
+                        </h3>
+                        <p className="text-sm text-zinc-400 mt-1">
+                            Automatically discovers leads from OpenStreetMap, Serper, and other sources
+                        </p>
+                    </div>
+                    <div className="text-right">
+                        <span className="text-green-400 text-sm flex items-center gap-2">
+                            <span className="inline-block w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                            Running on n8n
+                        </span>
+                        <a
+                            href="https://mak-n8n.onrender.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+                        >
+                            Open n8n Dashboard →
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 {AGENTS.map(agent => (
                     <div
                         key={agent.id}
