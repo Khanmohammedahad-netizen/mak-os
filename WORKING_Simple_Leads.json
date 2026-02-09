@@ -1,0 +1,115 @@
+{
+    "name": "MAK Lead Discovery - WORKING",
+    "nodes": [
+        {
+            "parameters": {
+                "path": "discover-leads",
+                "responseMode": "onReceived"
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1.1,
+            "position": [
+                240,
+                400
+            ],
+            "webhookId": "discover-leads"
+        },
+        {
+            "parameters": {
+                "url": "https://overpass-api.de/api/interpreter",
+                "method": "POST",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "value": "[out:json];(node[\"amenity\"=\"restaurant\"](51.4074,-0.2278,51.6074,0.0722););out body 10;"
+                        }
+                    ]
+                }
+            },
+            "name": "Get London Restaurants",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                460,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "elements"
+            },
+            "name": "Split Businesses",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                680,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://mak-os.onrender.com/api/leads",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"company_name\": {{ $json.tags.name ? '\"' + $json.tags.name + '\"' : '\"Restaurant in London\"' }},\n  \"location\": \"London, UK\",\n  \"industry\": \"Restaurant\",\n  \"phone\": {{ $json.tags.phone ? '\"' + $json.tags.phone + '\"' : '\"\"' }},\n  \"website\": {{ $json.tags.website ? '\"' + $json.tags.website + '\"' : '\"\"' }},\n  \"email\": \"\",\n  \"source\": \"openstreetmap\",\n  \"status\": \"new\",\n  \"priority\": \"medium\",\n  \"employee_count\": 10,\n  \"notes\": \"Discovered from OpenStreetMap\"\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "name": "POST to MAK OS",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Get London Restaurants"
+                    }
+                ]
+            ]
+        },
+        "Get London Restaurants": {
+            "main": [
+                [
+                    {
+                        "node": "Split Businesses"
+                    }
+                ]
+            ]
+        },
+        "Split Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "POST to MAK OS"
+                    }
+                ]
+            ]
+        }
+    }
+}

@@ -1,0 +1,680 @@
+{
+    "name": "MAK Lead Discovery - COMPLETE PRODUCTION",
+    "nodes": [
+        {
+            "parameters": {
+                "path": "discover-leads",
+                "responseMode": "onReceived",
+                "options": {}
+            },
+            "id": "webhook-1",
+            "name": "Webhook Trigger",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1.1,
+            "position": [
+                240,
+                500
+            ],
+            "webhookId": "discover-leads"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "region1",
+                            "name": "region",
+                            "value": "London",
+                            "type": "string"
+                        },
+                        {
+                            "id": "bbox1",
+                            "name": "bbox",
+                            "value": "51.4074,-0.2278,51.6074,0.0722",
+                            "type": "string"
+                        },
+                        {
+                            "id": "country1",
+                            "name": "country",
+                            "value": "UK",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": false
+                }
+            },
+            "id": "region-uk",
+            "name": "UK Region",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                460,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "region2",
+                            "name": "region",
+                            "value": "New York",
+                            "type": "string"
+                        },
+                        {
+                            "id": "bbox2",
+                            "name": "bbox",
+                            "value": "40.7128,-74.0260,40.8128,-73.9260",
+                            "type": "string"
+                        },
+                        {
+                            "id": "country2",
+                            "name": "country",
+                            "value": "USA",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": false
+                }
+            },
+            "id": "region-usa",
+            "name": "USA Region",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                460,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "region3",
+                            "name": "region",
+                            "value": "Dubai",
+                            "type": "string"
+                        },
+                        {
+                            "id": "bbox3",
+                            "name": "bbox",
+                            "value": "25.1972,55.2408,25.2972,55.3408",
+                            "type": "string"
+                        },
+                        {
+                            "id": "country3",
+                            "name": "country",
+                            "value": "UAE",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": false
+                }
+            },
+            "id": "region-uae",
+            "name": "UAE Region",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                460,
+                700
+            ]
+        },
+        {
+            "parameters": {},
+            "id": "merge-regions",
+            "name": "Merge Regions",
+            "type": "n8n-nodes-base.merge",
+            "typeVersion": 2.1,
+            "position": [
+                680,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://overpass-api.de/api/interpreter",
+                "method": "POST",
+                "sendBody": true,
+                "contentType": "form-urlencoded",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "value": "=[out:json];(node[\"amenity\"=\"restaurant\"]({{ $json.bbox }});node[\"amenity\"=\"cafe\"]({{ $json.bbox }});node[\"shop\"]({{ $json.bbox }}););out body 15;"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "get-businesses",
+            "name": "Get Businesses",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                900,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "elements",
+                "options": {}
+            },
+            "id": "split-businesses",
+            "name": "Split Businesses",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                1120,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "company_name",
+                            "name": "company_name",
+                            "value": "={{ $json.tags?.name ?? 'Business in ' + ($('Merge Regions').item.json.region ?? 'Unknown') }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "location",
+                            "name": "location",
+                            "value": "={{ ($json.tags?.['addr:street'] ? $json.tags['addr:street'] + ', ' : '') + ($('Merge Regions').item.json.region ?? 'Unknown') + ', ' + ($('Merge Regions').item.json.country ?? 'Unknown') }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "industry",
+                            "name": "industry",
+                            "value": "={{ $json.tags?.amenity ?? $json.tags?.shop ?? 'retail' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "phone",
+                            "name": "phone",
+                            "value": "={{ $json.tags?.phone ?? $json.tags?.['contact:phone'] ?? '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "website",
+                            "name": "website",
+                            "value": "={{ $json.tags?.website ?? $json.tags?.['contact:website'] ?? '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "email",
+                            "name": "email",
+                            "value": "={{ $json.tags?.email ?? $json.tags?.['contact:email'] ?? '' }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "extract-data",
+            "name": "Extract Business Data",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                1340,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                "method": "POST",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "value": "AIzaSyDQomWl96ZBOofTNx4i-zMN9dyRBq5c7_w"
+                        }
+                    ]
+                },
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"Analyze this business and provide key insights: {{ $json.company_name }}, Industry: {{ $json.industry }}, Location: {{ $json.location }}. Provide a 2-sentence analysis.\"\n    }]\n  }]\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "id": "gemini-analysis",
+            "name": "Gemini AI Analysis",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1560,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "ai_analysis",
+                            "name": "ai_analysis",
+                            "value": "={{ $json.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No analysis available' }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": true
+                }
+            },
+            "id": "parse-gemini",
+            "name": "Parse Gemini Response",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                1780,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://api.groq.com/openai/v1/chat/completions",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"mixtral-8x7b-32768\",\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Create a personalized, professional outreach hook (max 50 words) for {{ $json.company_name }} in {{ $json.industry }}. Focus on value proposition.\"\n  }]\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "id": "groq-personalization",
+            "name": "Groq Personalization",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2000,
+                500
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "GROQ_CREDENTIALS",
+                    "name": "Groq API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "outreach_hook",
+                            "name": "outreach_hook",
+                            "value": "={{ $json.choices?.[0]?.message?.content ?? 'Personalized outreach available' }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": true
+                }
+            },
+            "id": "parse-groq",
+            "name": "Parse Groq Response",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                2220,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "source",
+                            "name": "source",
+                            "value": "openstreetmap",
+                            "type": "string"
+                        },
+                        {
+                            "id": "status",
+                            "name": "status",
+                            "value": "new",
+                            "type": "string"
+                        },
+                        {
+                            "id": "priority",
+                            "name": "priority",
+                            "value": "high",
+                            "type": "string"
+                        },
+                        {
+                            "id": "employee_count",
+                            "name": "employee_count",
+                            "value": "15",
+                            "type": "number"
+                        },
+                        {
+                            "id": "notes",
+                            "name": "notes",
+                            "value": "={{ 'AI Analysis: ' + ($json.ai_analysis ?? 'N/A') + ' | Outreach: ' + ($json.outreach_hook ?? 'N/A') }}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {
+                    "includeOtherFields": true
+                }
+            },
+            "id": "format-final",
+            "name": "Format Final Lead",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.3,
+            "position": [
+                2440,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://mak-os.onrender.com/api/leads",
+                "method": "POST",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"company_name\": \"{{ $json.company_name }}\",\n  \"location\": \"{{ $json.location }}\",\n  \"industry\": \"{{ $json.industry }}\",\n  \"phone\": \"{{ $json.phone }}\",\n  \"website\": \"{{ $json.website }}\",\n  \"email\": \"{{ $json.email }}\",\n  \"source\": \"{{ $json.source }}\",\n  \"status\": \"{{ $json.status }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"employee_count\": {{ $json.employee_count }},\n  \"notes\": \"{{ $json.notes }}\"\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "neverError": true
+                        }
+                    }
+                }
+            },
+            "id": "post-to-mak",
+            "name": "POST to MAK OS",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2660,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{ $json.email }}",
+                            "operation": "isNotEmpty"
+                        }
+                    ]
+                }
+            },
+            "id": "check-email",
+            "name": "Has Email?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                2880,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "fromEmail": "ahad@maksoftwaresolutions.com",
+                "toEmail": "={{ $json.email }}",
+                "subject": "=Collaboration Opportunity - {{ $json.company_name }}",
+                "emailType": "html",
+                "message": "=<p>Hi {{ $json.company_name }} team,</p>\n\n<p>{{ $json.outreach_hook }}</p>\n\n<p>I noticed you're operating in {{ $json.location }}. We specialize in helping businesses like yours streamline operations and increase efficiency.</p>\n\n<p>Would you be open to a brief conversation?</p>\n\n<p>Best regards,<br>\nAhad Khan<br>\nMAK Software Solutions</p>",
+                "options": {}
+            },
+            "id": "send-email",
+            "name": "Send Email",
+            "type": "n8n-nodes-base.emailSend",
+            "typeVersion": 2.1,
+            "position": [
+                3100,
+                400
+            ],
+            "credentials": {
+                "smtp": {
+                    "id": "EMAIL_SMTP",
+                    "name": "Email SMTP"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Webhook Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "UK Region",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "USA Region",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "UAE Region",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "UK Region": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Regions",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "USA Region": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Regions",
+                        "type": "main",
+                        "index": 1
+                    }
+                ]
+            ]
+        },
+        "UAE Region": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Regions",
+                        "type": "main",
+                        "index": 2
+                    }
+                ]
+            ]
+        },
+        "Merge Regions": {
+            "main": [
+                [
+                    {
+                        "node": "Get Businesses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Split Businesses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Businesses": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Business Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Business Data": {
+            "main": [
+                [
+                    {
+                        "node": "Gemini AI Analysis",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Gemini AI Analysis": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Gemini Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Gemini Response": {
+            "main": [
+                [
+                    {
+                        "node": "Groq Personalization",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Groq Personalization": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Groq Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Groq Response": {
+            "main": [
+                [
+                    {
+                        "node": "Format Final Lead",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Final Lead": {
+            "main": [
+                [
+                    {
+                        "node": "POST to MAK OS",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "POST to MAK OS": {
+            "main": [
+                [
+                    {
+                        "node": "Has Email?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Email?": {
+            "main": [
+                [
+                    {
+                        "node": "Send Email",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "staticData": null,
+    "tags": [],
+    "triggerCount": 0,
+    "updatedAt": "2026-02-09T14:59:13.000Z",
+    "versionId": "1"
+}

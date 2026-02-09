@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Lead
 from app.schemas import LeadCreate, LeadUpdate, LeadResponse
 from typing import List
+import httpx
 
 router = APIRouter()
 
@@ -77,6 +78,7 @@ async def update_lead(
     await db.refresh(lead)
     return lead
 
+
 @router.delete("/{lead_id}", status_code=204)
 async def delete_lead(
     lead_id: int,
@@ -91,3 +93,19 @@ async def delete_lead(
     
     await db.delete(lead)
     return None
+
+@router.post("/discover")
+async def discover_leads():
+    """Trigger n8n workflow to discover new leads"""
+    n8n_webhook_url = "https://mak-n8n.onrender.com/webhook/discover-leads"
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(n8n_webhook_url)
+            response.raise_for_status()
+            return {"status": "success", "message": "Lead discovery triggered"}
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to trigger n8n workflow: {str(e)}"
+        )

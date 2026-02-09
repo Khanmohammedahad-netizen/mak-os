@@ -63,21 +63,22 @@ export function Leads() {
     const discoverLeads = async () => {
         setDiscovering(true);
         try {
-            const response = await fetch('https://mak-n8n.onrender.com/webhook/discover-leads', {
+            const response = await fetch('https://mak-os.onrender.com/api/leads/discover', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ region: 'UK' })
+                headers: { 'Content-Type': 'application/json' }
             });
 
             if (response.ok) {
                 // Wait a moment then refresh leads
                 setTimeout(() => {
                     fetchLeads();
+                    setDiscovering(false);
                 }, 3000);
+            } else {
+                throw new Error('Failed to trigger discovery');
             }
         } catch (error) {
             console.error('Failed to discover leads:', error);
-        } finally {
             setDiscovering(false);
         }
     };
