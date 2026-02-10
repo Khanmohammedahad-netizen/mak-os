@@ -94,6 +94,49 @@ async def delete_lead(
     await db.delete(lead)
     return None
 
+@router.post("/bulk")
+async def create_leads_bulk(
+    leads: List[LeadCreate],
+    db: AsyncSession = Depends(get_db)
+):
+    """Create multiple leads at once"""
+    db_leads = []
+    successful = 0
+    failed = 0
+    errors = []
+    
+    for idx, lead_data in enumerate(leads):
+        try:
+            db_lead = Lead(**lead_data.model_dump())
+            db.add(db_lead)
+            db_leads.append(db_lead)
+            successful += 1
+        except Exception as e:
+            failed += 1
+            errors.append({
+                "index": idx,
+                "company_name": lead_data.company_name,
+                "error": str(e)
+            })
+    
+    try:
+        await db.flush()
+        for db_lead in db_leads:
+            await db.refresh(db_lead)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error during bulk insert: {str(e)}"
+        )
+    
+    return {
+        "successful": successful,
+        "failed": failed,
+        "errors": errors,
+        "total": len(leads)
+    }
+
 @router.post("/discover")
 async def discover_leads():
     """Trigger n8n workflow to discover new leads"""
