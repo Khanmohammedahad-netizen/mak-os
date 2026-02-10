@@ -36,6 +36,7 @@ export function Leads() {
     const [activeId, setActiveId] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [discovering, setDiscovering] = useState(false);
+    const [clearing, setClearing] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -63,23 +64,48 @@ export function Leads() {
     const discoverLeads = async () => {
         setDiscovering(true);
         try {
-            const response = await fetch('https://mak-os.onrender.com/api/leads/discover', {
+            const response = await fetch('https://mak-n8n.onrender.com/webhook/mak/lead-generation/run', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetLeads: 50,
+                    testMode: false
+                })
             });
 
             if (response.ok) {
+                const result = await response.json();
+                console.log('Lead generation complete:', result);
                 // Wait a moment then refresh leads
                 setTimeout(() => {
                     fetchLeads();
                     setDiscovering(false);
-                }, 3000);
+                }, 2000);
             } else {
                 throw new Error('Failed to trigger discovery');
             }
         } catch (error) {
             console.error('Failed to discover leads:', error);
+            alert('Failed to start lead discovery. Make sure n8n workflows are imported and activated.');
             setDiscovering(false);
+        }
+    };
+
+    const clearAllLeads = async () => {
+        if (!confirm(`Are you sure you want to delete all ${leads.length} leads? This action cannot be undone.`)) {
+            return;
+        }
+
+        setClearing(true);
+        try {
+            // Delete each lead
+            await Promise.all(leads.map(lead => leadsApi.delete(lead.id)));
+            setLeads([]);
+        } catch (error) {
+            console.error('Failed to clear leads:', error);
+            alert('Failed to delete some leads. Please try again.');
+        } finally {
+            setClearing(false);
         }
     };
 
@@ -138,17 +164,29 @@ export function Leads() {
                     <p className="text-zinc-400 mt-2 text-sm sm:text-base">Drag and drop leads between stages</p>
                     <p className="text-sm text-zinc-500 mt-1">{leads.length} total leads</p>
                 </div>
-                <button
-                    onClick={discoverLeads}
-                    disabled={discovering}
-                    className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center gap-2 transition-all text-sm sm:text-base w-full sm:w-auto justify-center"
-                >
-                    <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${discovering ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {discovering ? 'Discovering...' : 'Discover Leads'}
-                </button>
+                <div className="flex gap-3 w-full sm:w-auto">
+                    <button
+                        onClick={clearAllLeads}
+                        disabled={clearing || leads.length === 0}
+                        className="px-4 sm:px-6 py-2 sm:py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold text-red-400 flex items-center gap-2 transition-all text-sm sm:text-base flex-1 sm:flex-initial justify-center"
+                    >
+                        <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${clearing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        {clearing ? 'Clearing...' : 'Clear All'}
+                    </button>
+                    <button
+                        onClick={discoverLeads}
+                        disabled={discovering}
+                        className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center gap-2 transition-all text-sm sm:text-base flex-1 sm:flex-initial justify-center"
+                    >
+                        <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${discovering ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        {discovering ? 'Discovering...' : 'Discover Leads'}
+                    </button>
+                </div>
             </div>
 
             <DndContext
