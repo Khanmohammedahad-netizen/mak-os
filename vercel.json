@@ -1,0 +1,16 @@
+{
+    "crons": [
+        {
+            "path": "/api/cron/daily-run",
+            "schedule": "0 13 * * *"
+        },
+        {
+            "path": "/api/cron/follow-up",
+            "schedule": "0 14 * * *"
+        },
+        {
+            "path": "/api/cron/reply-check",
+            "schedule": "*/15 * * * *"
+        }
+    ]
+}

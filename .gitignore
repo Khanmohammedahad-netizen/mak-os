@@ -1,44 +1,35 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-*.egg-info/
-dist/
-build/
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# testing
+/coverage
 
-# Environment
-.env
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+*.txt
+
+# local env files
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env.local
 
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Node
-node_modules/
-npm-debug.log
-yarn-error.log
-
-# Build outputs
-dist/
-frontend/dist/
+# vercel
+.vercel

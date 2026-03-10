@@ -1,0 +1,560 @@
+/**
+ * Outreach Engine — Fully autonomous 7-stage pipeline.
+ *
+ * Stage 1: ResearchAgent      → Scrape businesses via Apify Google Maps
+ * Stage 2: LeadFinderAgent    → Filter chains, validate, compute priority
+ * Stage 3: WebsiteAuditAgent  → Check website existence
+ * Stage 4: ContactEnrichment  → Find emails via Apify contact scraper
+ * Stage 5: MarketingAgent     → Generate personalized outreach message
+ * Stage 6: AutomationAgent    → Send email via Zoho SMTP (or flag for phone)
+ * Stage 7: CRM Update         → Update Supabase lead status + log activity
+ */
+
+import { scrapeGoogleMaps, enrichContacts, type GoogleMapsLead } from './apify'
+import { sendEmail, buildOutreachVariants } from './zoho-mail'
+import { evaluateVariants } from './quality-gate'
+
+// ─── Types ────────────────────────────────────────────────────────
+
+export interface OutreachResult {
+    discovered: number
+    qualified: number
+    enriched: number
+    emailsSent: number
+    phoneRequired: number
+    queued?: number
+    errors: number
+    logs: string[]
+}
+
+export type AuditCategory = 'A - No Website' | 'B - Outdated' | 'C - Facebook Only' | 'D - Good Website'
+
+export type PriorityLane = 'hot' | 'warm' | 'cold' | 'rejected'
+
+interface QualifiedLead extends GoogleMapsLead {
+    priorityScore: number
+    priorityLane: PriorityLane
+    auditCategory?: AuditCategory
+    opportunitySummary?: string
+}
+
+// ─── Chain Blacklist ──────────────────────────────────────────────
+
+const CHAIN_BLACKLIST = [
+    'starbucks', 'mcdonalds', 'subway', 'burger king', 'kfc',
+    'pizza hut', 'dominos', 'chipotle', 'dunkin', 'wendys',
+    'taco bell', 'popeyes', 'chick-fil-a', 'panda express',
+    'five guys', 'jack in the box', 'sonic', 'arbys', 'ihop',
+    'applebees', 'olive garden', 'red lobster', 'outback',
+    'panera', 'jimmy johns', 'jersey mikes', 'dairy queen',
+    'papa johns', 'little caesars', 'buffalo wild wings',
+    'texas roadhouse', 'chilis', 'dennys', 'waffle house',
+    'carls jr', 'hardees', 'in-n-out', 'whataburger', 'shake shack',
+    'smashburger', 'baskin robbins', 'cold stone', 'smoothie king',
+    'jamba juice', 'planet fitness', 'crunch fitness', 'la fitness',
+    'anytime fitness', 'gold\'s gym', 'equinox', 'orange theory',
+    'supercuts', 'great clips', 'sport clips', 'regis', 'cost cutters',
+    'f45', 'pure barre', 'club pilates', 'massage envy', 'european wax',
+    'pep boys', 'jiffy lube', 'valvoline', 'midas', 'firestone'
+]
+
+const PLACEHOLDER_PATTERNS = [
+    'example.com', 'test.com', 'demo.com', 'sample', 'mock', 'fallback',
+]
+
+function isFranchise(name: string): boolean {
+    const lowerName = name.toLowerCase()
+    if (CHAIN_BLACKLIST.some(chain => lowerName.includes(chain))) return true
+    if (lowerName.includes('nationwide') || lowerName.includes('franchise') || lowerName.includes('chain')) return true
+    if (lowerName.includes('locations across') || /\d+\s*locations/.test(lowerName)) return true
+    return false
+}
+
+// ─── Stage 2: Priority Scoring (Weighted out of 10) ───────────────
+
+function computePriority(lead: GoogleMapsLead): number {
+    // Component 1 - Rating (max 3.0)
+    let ratingScore = 0.5
+    if (lead.rating) {
+        if (lead.rating >= 4.5) ratingScore = 3.0
+        else if (lead.rating >= 4.0) ratingScore = 2.5
+        else if (lead.rating >= 3.5) ratingScore = 2.0
+        else if (lead.rating >= 3.0) ratingScore = 1.5
+    }
+
+    // Component 2 - Review Count (max 2.0)
+    let reviewScore = 0.0
+    const rc = lead.reviewCount || 0
+    if (rc >= 100) reviewScore = 2.0
+    else if (rc >= 50) reviewScore = 1.75
+    else if (rc >= 20) reviewScore = 1.5
+    else if (rc >= 10) reviewScore = 1.0
+    else if (rc >= 5) reviewScore = 0.5
+
+    // Component 3 - Recency (max 1.5) -> approximated since Apify doesn't reliably return date
+    let recencyScore = 0.0
+    if (rc >= 50) recencyScore = 1.5 // Active business proxy
+    else if (rc >= 10) recencyScore = 1.0
+    else if (rc > 0) recencyScore = 0.5
+
+    // Component 4 - Digital Presence Gap (max 2.0)
+    let gapScore = 0.0
+    const hasWeb = !!lead.website
+    const socialWeb = hasWeb && (lead.website!.includes('facebook.com') || lead.website!.includes('instagram.com'))
+
+    if (lead.noWebsiteConfirmed && !hasWeb) gapScore = 2.0
+    else if (!hasWeb) gapScore = 1.75
+    else if (socialWeb) gapScore = 1.75
+    else gapScore = 1.0 // Base score for having a site before audit
+
+    // Component 5 - Category Multiplier (max 1.0)
+    let catScore = 0.5
+    if (lead.category) {
+        const cat = lead.category.toLowerCase()
+        if (cat.includes('clinic') || cat.includes('law') || cat.includes('contractor') || cat.includes('dentist')) catScore = 1.0
+        else if (cat.includes('restaurant') || cat.includes('cafe') || cat.includes('salon') || cat.includes('barber')) catScore = 0.85
+        else if (cat.includes('gym') || cat.includes('retail') || cat.includes('repair')) catScore = 0.75
+    }
+
+    // Component 6 - Google Maps Claimed Bonus (max 0.5)
+    const claimedScore = 0.5 // Default to unclaimed bonus for this version
+
+    return Number((ratingScore + reviewScore + recencyScore + gapScore + catScore + claimedScore).toFixed(1))
+}
+
+function getPriorityLane(score: number, noWebConfirmed: boolean): PriorityLane {
+    if (score < 7.0) return 'rejected'
+    if (score >= 9.0 && noWebConfirmed) return 'hot'
+    if (score >= 8.0) return 'warm'
+    return 'cold'
+}
+
+// ─── Stage 3: Website Audit Classification ────────────────────────
+
+function auditWebsite(lead: GoogleMapsLead): { category: AuditCategory; summary: string } {
+    const businessName = lead.name
+    const city = lead.city || 'your area'
+
+    if (!lead.website || lead.noWebsiteConfirmed) {
+        return {
+            category: 'A - No Website',
+            summary: `${businessName} doesn't currently have a website — customers searching for your services in ${city} can't find you online, and you're losing foot traffic to competitors who do show up in search results.`
+        }
+    }
+
+    const url = lead.website.toLowerCase()
+
+    if (url.includes('facebook.com') || url.includes('instagram.com') || url.includes('tiktok.com')) {
+        return {
+            category: 'C - Facebook Only',
+            summary: `${businessName} is currently using social media instead of a dedicated website. While social media is great for updates, customers in ${city} rely on professional websites to find menus, services, and booking options easily.`
+        }
+    }
+
+    // Basic heuristic: builder sub-domain, lacks https
+    if (url.includes('.wixsite.com') || url.includes('.weebly.com') || url.includes('.wordpress.com') || url.startsWith('http://')) {
+        return {
+            category: 'B - Outdated',
+            summary: `The current ${businessName} website is running on an outdated platform, which means it likely loads slowly on mobile devices and drops your ranking in ${city} local search results.`
+        }
+    }
+
+    // Otherwise assume it's a "Good" website
+    return {
+        category: 'D - Good Website',
+        summary: `Website appears modern and functional.`
+    }
+}
+
+// ─── Stage 4: Contact Enrichment Waterfall ──────────────────────────
+
+async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: string[]): Promise<string | null> {
+    // Stage 4.1: Directory Check
+    if (lead.email) {
+        logs.push(`[Stage 4] ${lead.name}: Email already available via Directory (${lead.email})`)
+        return lead.email
+    }
+
+    let domain: string | null = null
+    if (lead.website && lead.website.startsWith('http')) {
+        try {
+            domain = new URL(lead.website).hostname.replace('www.', '')
+        } catch { /* ignore malformed urls */ }
+    }
+
+    // Stage 4.2: Cache Check
+    if (domain && supabase) {
+        try {
+            const { data: cached } = await supabase.from('email_cache').select('email').eq('domain', domain).single()
+            if (cached?.email) {
+                logs.push(`[Stage 4] ${lead.name}: Found email in Cache (${cached.email})`)
+                return cached.email
+            }
+        } catch (e) {
+            // No cache hit or error
+        }
+    }
+
+    // Stage 4.3: Website / Social Scrape Check
+    if (lead.website) {
+        try {
+            const contacts = await enrichContacts([lead.website])
+            if (contacts.length > 0 && contacts[0].emails && contacts[0].emails.length > 0) {
+                const foundEmail = contacts[0].emails[0]
+                logs.push(`[Stage 4] ${lead.name}: Found email via Website Scraper (${foundEmail})`)
+
+                if (domain && supabase) {
+                    await supabase.from('email_cache').upsert({
+                        domain, email: foundEmail, confidence: 'verified', source: 'website'
+                    })
+                }
+                return foundEmail
+            }
+        } catch (e) {
+            logs.push(`[Stage 4] ${lead.name}: Website scraper fallback failed`)
+        }
+    }
+
+    // Stage 4.4: Pattern Guessing
+    if (domain) {
+        const guessedEmail = `info@${domain}`
+        logs.push(`[Stage 4] ${lead.name}: Guessed pattern email (${guessedEmail})`)
+        if (supabase) {
+            await supabase.from('email_cache').upsert({
+                domain, email: guessedEmail, confidence: 'guessed', source: 'pattern'
+            })
+        }
+        return guessedEmail
+    }
+
+    logs.push(`[Stage 4] ${lead.name}: No email found -> routing to phone queue`)
+    return null
+}
+
+// ─── Get Owner ID ─────────────────────────────────────────────────
+
+async function getOwnerId(supabase: any): Promise<string | null> {
+    try {
+        const { data } = await supabase.auth.admin.listUsers()
+        return data?.users?.[0]?.id || null
+    } catch {
+        return null
+    }
+}
+
+// ─── Main Pipeline ────────────────────────────────────────────────
+
+export async function runOutreachPipeline(
+    category: string,
+    city: string,
+    supabase: any,
+    options: { maxResults?: number; dryRun?: boolean } = {}
+): Promise<OutreachResult> {
+    const { maxResults = 20, dryRun = false } = options
+    const logs: string[] = []
+    const result: OutreachResult = {
+        discovered: 0, qualified: 0, enriched: 0,
+        emailsSent: 0, phoneRequired: 0, errors: 0, logs,
+    }
+
+    try {
+        // Get owner_id for DB inserts (required NOT NULL field)
+        const ownerId = await getOwnerId(supabase)
+        if (!ownerId) {
+            logs.push(`[Pipeline] Warning: Could not find owner_id, inserts may fail`)
+        }
+
+        // ─── Stage 1: ResearchAgent — Scrape ──────────────
+        logs.push(`[Stage 1] ResearchAgent: Scraping "${category}" in "${city}"`)
+        const rawLeads = await scrapeGoogleMaps(category, city, maxResults, supabase)
+        result.discovered = rawLeads.length
+        logs.push(`[Stage 1] Discovered ${rawLeads.length} businesses`)
+
+        // ─── Stage 2: LeadFinderAgent — Qualify ───────────
+        logs.push(`[Stage 2] LeadFinderAgent: Qualifying leads...`)
+        const qualified: QualifiedLead[] = []
+        let discardedCount = 0
+
+        for (const lead of rawLeads) {
+            // Chain filter
+            if (isFranchise(lead.name)) {
+                logs.push(`[Stage 2] Filtered chain/franchise: ${lead.name}`)
+                discardedCount++
+                continue
+            }
+
+            // Data validation
+            if (!lead.name || !lead.city) {
+                discardedCount++
+                continue
+            }
+
+            // Placeholder rejection
+            const hasPlaceholder = [lead.name, lead.email || '', lead.website || '', lead.phone || '']
+                .some(v => PLACEHOLDER_PATTERNS.some(p => v.toLowerCase().includes(p)))
+            if (hasPlaceholder) {
+                discardedCount++
+                continue
+            }
+
+            const priorityScore = computePriority(lead)
+            const priorityLane = getPriorityLane(priorityScore, !!lead.noWebsiteConfirmed)
+
+            if (priorityLane === 'rejected') {
+                discardedCount++
+                continue
+            }
+
+            qualified.push({ ...lead, priorityScore, priorityLane })
+        }
+
+        // Sort by priority (highest first)
+        qualified.sort((a, b) => b.priorityScore - a.priorityScore)
+        result.qualified = qualified.length
+        logs.push(`[Stage 2] ${qualified.length} qualified leads (sorted by priority) - Discarded: ${discardedCount}`)
+
+        if (qualified.length === 0) {
+            logs.push(`[Stage 2] No qualified leads found. Pipeline complete.`)
+            return result
+        }
+
+        // ─── Stage 3: WebsiteAuditAgent — Check websites ─
+        logs.push(`[Stage 3] WebsiteAuditAgent: Auditing websites...`)
+        const websiteQualified: typeof qualified = []
+
+        for (const lead of qualified) {
+            // Perform Website Audit
+            const audit = auditWebsite(lead)
+
+            if (audit.category === 'D - Good Website') {
+                logs.push(`[Stage 3] ${lead.name}: Has good website → Skipping`)
+                continue
+            }
+
+            logs.push(`[Stage 3] ${lead.name}: ${audit.category}`)
+
+            websiteQualified.push({
+                ...lead,
+                auditCategory: audit.category,
+                opportunitySummary: audit.summary
+            } as any) // Type handled in next step
+        }
+
+        // ─── Stage 4: ContactEnrichmentAgent ──────────────
+        logs.push(`[Stage 4] ContactEnrichmentAgent: Enriching contacts...`)
+
+        // Get rate limit status
+        const dailySent = await getDailySentCount(supabase)
+        const DAILY_LIMIT = 30
+        const remaining = Math.max(0, DAILY_LIMIT - dailySent)
+        logs.push(`[Stage 4] Daily email budget: ${remaining}/${DAILY_LIMIT} remaining`)
+
+        // Only enrich leads we can actually contact today
+        const leadsToProcess = websiteQualified.slice(0, remaining || websiteQualified.length)
+
+        for (const lead of leadsToProcess) {
+            const foundEmail = await enrichContactWaterfall(lead, supabase, logs)
+            if (foundEmail) {
+                lead.email = foundEmail
+                result.enriched++
+            } else {
+                result.phoneRequired++
+            }
+        }
+
+        // ─── Stages 5-7: Generate, Send, Log ─────────────
+        for (const lead of leadsToProcess) {
+            // ─── Duplicate Detection ─────────────────────
+            const { data: existing } = await supabase
+                .from('leads')
+                .select('id')
+                .eq('company', lead.name)
+                .eq('city', lead.city || city)
+                .limit(1)
+                .single()
+
+            if (existing) {
+                logs.push(`[CRM] Skipped duplicate: ${lead.name} (${lead.city || city})`)
+                continue
+            }
+
+            // Insert lead into Supabase
+            // Note: status uses lead_status ENUM (default 'new'), owner_id is NOT NULL
+            const leadRecord: Record<string, any> = {
+                company: lead.name,
+                email: lead.email || null,
+                phone: lead.phone || null,
+                city: lead.city || city,
+                category: lead.category || category,
+                website: lead.website || null,
+                source: 'Google Maps',
+                priority_score: Math.round(lead.priorityScore),
+                contact_method: lead.email ? 'email' : 'phone',
+            }
+
+            // owner_id is required
+            if (ownerId) leadRecord.owner_id = ownerId
+
+            const { data: inserted, error: insertErr } = await supabase
+                .from('leads')
+                .insert(leadRecord)
+                .select('id')
+                .single()
+
+            if (insertErr || !inserted) {
+                logs.push(`[CRM] Insert error for ${lead.name}: ${insertErr?.message || 'Unknown'}`)
+                result.errors++
+                continue
+            }
+
+            const leadId = inserted.id
+
+            if (lead.email && !dryRun) {
+                // Check rate limit
+                const currentCount = await getDailySentCount(supabase)
+                if (currentCount >= DAILY_LIMIT) {
+                    logs.push(`[Stage 6] Limit reached (${DAILY_LIMIT}). Queued email for ${lead.name}.`)
+                    result.queued = (result.queued || 0) + 1
+                    continue
+                }
+
+                // ─── Stage 5 & 6: MarketingAgent & Quality Gate
+                const variants = buildOutreachVariants({
+                    company: lead.name,
+                    city: lead.city || city,
+                    category: lead.category,
+                    auditCategory: lead.auditCategory,
+                    opportunitySummary: lead.opportunitySummary,
+                })
+
+                const gate = evaluateVariants(lead.name, lead.city || city, variants)
+
+                if (gate.gate_result === 'fail' || !gate.selected_variant) {
+                    logs.push(`[Stage 6] QualityGate failed for ${lead.name} - blocked send`)
+                    result.errors++
+                    continue
+                }
+
+                if (gate.gate_result === 'conditional') {
+                    logs.push(`[Stage 6] QualityGate flagged conditional for ${lead.name} - skipped auto-send`)
+                    // Keep lead in pending queue but don't send today
+                    continue
+                }
+
+                logs.push(`[Stage 5] MarketingAgent: Generated outreach for ${lead.name} (${gate.selected_variant} passed gate)`)
+
+                // ─── Stage 7: AutomationAgent — Send email
+                try {
+                    const htmlBody = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;line-height:1.6;"><p>${gate.selected_body!.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p></div>`
+                    const mailResult = await sendEmail({
+                        to: lead.email,
+                        subject: gate.selected_subject!,
+                        html: htmlBody,
+                        text: gate.selected_body!
+                    })
+
+                    logs.push(`[Stage 7] AutomationAgent: Email sent to ${lead.name} (${lead.email})`)
+                    result.emailsSent++
+
+                    // ─── Stage 8: CRM Update
+                    await supabase.from('leads').update({
+                        status: 'contacted',
+                        contacted_at: new Date().toISOString(),
+                        message_id: mailResult.messageId,
+                        outreach_message: gate.selected_body!.substring(0, 500),
+                        contact_method: 'emailed',
+                    }).eq('id', leadId)
+
+                    try {
+                        const { error: logErr } = await supabase.from('outreach_log').insert({
+                            lead_id: leadId,
+                            business_name: lead.name,
+                            email_address: lead.email,
+                            touch_number: 1,
+                            subject: gate.selected_subject,
+                            body: gate.selected_body,
+                            send_status: 'sent',
+                            sent_at: new Date().toISOString(),
+                            sequence_status: 'active',
+                            variant_used: gate.selected_variant,
+                            gate_score: (gate.scores as any)[gate.selected_variant!].average
+                        })
+                        if (logErr) console.error('[OutreachEngine] Log Insert Error:', logErr)
+
+                        // Old backwards-compatible logs
+                        await supabase.from('outreach_logs').insert({
+                            lead_id: leadId,
+                            message: `Email sent: ${gate.selected_subject}`,
+                            type: 'email_sent',
+                        })
+                    } catch (e) {
+                        console.error('[OutreachEngine] Error logging outreach_log:', e)
+                    }
+
+                } catch (sendErr: any) {
+                    logs.push(`[Stage 7] Email failed for ${lead.name}: ${sendErr.message}`)
+                    result.errors++
+                    await supabase.from('leads').update({ contact_method: 'email_failed' }).eq('id', leadId)
+                }
+            } else if (!lead.email && lead.phone && !dryRun) {
+                // Flag for phone outreach
+                result.phoneRequired++
+                logs.push(`[Outreach] Phone outreach required for ${lead.name}`)
+                await supabase.from('leads').update({ contact_method: 'phone' }).eq('id', leadId)
+
+                try {
+                    await supabase.from('outreach_logs').insert({
+                        lead_id: leadId,
+                        message: `Phone outreach needed — no email found`,
+                        type: 'phone_required',
+                    })
+                } catch (e) {
+                    console.error('[OutreachEngine] Error logging phone required:', e)
+                }
+            } else if (dryRun) {
+                // Dry run
+                logs.push(`[Stage 5] [DRY RUN] Would email ${lead.name} at ${lead.email || 'N/A'}`)
+            }
+        } // End of leadsToProcess loop
+
+        // ─── Summary ─────────────────────────────────────
+        logs.push(``)
+        logs.push(`Workflow completed`)
+        logs.push(`Outreach emails sent: ${result.emailsSent}`)
+        logs.push(`Phone outreach required: ${result.phoneRequired}`)
+        if (result.errors > 0) logs.push(`Errors: ${result.errors}`)
+
+        return result
+    } catch (err: any) {
+        logs.push(`[Pipeline] Fatal error: ${err.message}`)
+        result.errors++
+        return result
+    }
+}
+
+// ─── Daily Rate Limit Helper ──────────────────────────────────────
+
+async function getDailySentCount(supabase: any): Promise<number> {
+    try {
+        const todayStart = new Date()
+        todayStart.setUTCHours(0, 0, 0, 0)
+
+        const { count, error } = await supabase
+            .from('leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('contact_method', 'emailed')
+            .gte('contacted_at', todayStart.toISOString())
+
+        if (error) {
+            const { count: fallbackCount } = await supabase
+                .from('leads')
+                .select('id', { count: 'exact', head: true })
+                .eq('contact_method', 'emailed')
+            return fallbackCount || 0
+        }
+
+        return count || 0
+    } catch {
+        return 0
+    }
+}

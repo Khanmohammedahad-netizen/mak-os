@@ -1,0 +1,6 @@
+{
+  "code": "23503",
+  "details": "Key (owner_id)=(71c2ed72-4a23-4317-88c5-70359b33c1af) is not present in table \"users\".",
+  "hint": null,
+  "message": "insert or update on table \"clients\" violates foreign key constraint \"clients_owner_id_fkey\""
+}
