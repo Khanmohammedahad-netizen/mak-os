@@ -1,4 +1,4 @@
-import { supabaseAdmin as supabase } from './supabase-admin'
+import { supabaseAdmin as supabase } from '../supabase-admin'
 
 export interface CarrierResult {
     carrier: string | null
