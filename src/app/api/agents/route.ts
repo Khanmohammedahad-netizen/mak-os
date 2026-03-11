@@ -28,6 +28,8 @@ export async function GET() {
             { id: 'devops', name: 'DevOpsAgent', categories: ['devops', 'automation'], status: 'idle', role: 'CI/CD, infra, deployment' },
             { id: 'security', name: 'SecurityAgent', categories: ['security'], status: 'idle', role: 'Pentesting, OWASP, compliance' },
             { id: 'automation', name: 'AutomationAgent', categories: ['automation'], status: 'idle', role: 'n8n, workflows, integrations' },
+            { id: 'phone-outreach', name: 'PhoneOutreachAgent', categories: ['automation', 'marketing'], status: 'idle', role: 'Multi-Channel SMS & WhatsApp' },
+            { id: 'ai-call', name: 'AICallAgent', categories: ['marketing'], status: process.env.BLAND_AI_ENABLED === 'true' ? 'ready' : 'disabled', role: 'Automated AI Voice Caller' },
         ]
 
         // Compute skills per agent

@@ -13,11 +13,14 @@ export default async function DashboardPage() {
     const { data: costs } = await supabase.from('api_cost_log').select('cost')
     const totalCost = costs?.reduce((acc: number, row: any) => acc + (row.cost || 0), 0) || 0
 
+    // Fetch Phone Pipeline Metrics
+    const { count: activePhoneSequences } = await supabase.from('phone_sequences_due').select('*', { count: 'exact', head: true })
+
     return (
         <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900">Weekly Metrics</h1>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
 
                 <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
@@ -31,12 +34,22 @@ export default async function DashboardPage() {
 
                 <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-semibold text-slate-500 text-xs tracking-wider uppercase">Sequences</h3>
+                        <h3 className="font-semibold text-slate-500 text-xs tracking-wider uppercase">Email Sequences</h3>
                         <div className="h-8 w-8 rounded-full bg-emerald-50 flex items-center justify-center">
                             <Activity className="w-4 h-4 text-emerald-600" />
                         </div>
                     </div>
                     <p className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">{activeOutreach || 0}</p>
+                </div>
+
+                <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-semibold text-slate-500 text-xs tracking-wider uppercase">Phone Sequences</h3>
+                        <div className="h-8 w-8 rounded-full bg-orange-50 flex items-center justify-center">
+                            <Activity className="w-4 h-4 text-orange-600" />
+                        </div>
+                    </div>
+                    <p className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight">{activePhoneSequences || 0}</p>
                 </div>
 
                 <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex flex-col justify-between">
