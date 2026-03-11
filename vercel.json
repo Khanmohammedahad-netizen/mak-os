@@ -7,10 +7,6 @@
         {
             "path": "/api/cron/follow-up",
             "schedule": "0 14 * * *"
-        },
-        {
-            "path": "/api/cron/reply-check",
-            "schedule": "*/15 * * * *"
         }
     ]
 }
