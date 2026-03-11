@@ -45,7 +45,8 @@ function getIssueStatement(category: string, name: string, city: string): string
 export async function initiateAICall(
     phoneNumber: string,
     script: string,
-    leadId: string
+    leadId: string,
+    voice: string = 'maya'
 ): Promise<{ success: boolean; callId?: string; disabled?: boolean }> {
 
     if (process.env.BLAND_AI_ENABLED !== 'true') {
@@ -68,7 +69,7 @@ export async function initiateAICall(
             body: JSON.stringify({
                 phone_number: phoneNumber,
                 task: script,
-                voice: 'maya', // The most natural, professional female voice on Bland.ai
+                voice: voice,
                 reduce_latency: true,
                 max_duration: 2, // Hard limit to 2 minutes to conserve balance
                 record: false,

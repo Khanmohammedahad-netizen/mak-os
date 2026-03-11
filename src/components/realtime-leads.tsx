@@ -3,16 +3,19 @@
 import { useEffect, useState } from 'react'
 import { useSupabase } from '@/components/providers/supabase-provider'
 import type { Database } from '@/types/database.types'
-import { X, Bot } from 'lucide-react'
+import { X, Bot, Phone, Play, Clock } from 'lucide-react'
 
 type Lead = Database['public']['Tables']['leads']['Row']
 
-export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
+export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Lead[], operatorName: string }) {
     const [leads, setLeads] = useState<Lead[]>(initialLeads)
     const [name, setName] = useState('')
     const [email, setEmail] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [actionLoading, setActionLoading] = useState<Record<string, string>>({})
+    const [selectedLeadForCall, setSelectedLeadForCall] = useState<Lead | null>(null)
+    const [customScript, setCustomScript] = useState('')
+    const [isInitiatingCall, setIsInitiatingCall] = useState(false)
     const { supabase, session } = useSupabase()
 
     useEffect(() => {
@@ -136,6 +139,54 @@ export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
                 delete next[leadId]
                 return next
             })
+        }
+    }
+
+    // ─── Call Script Generation ──────────────────────────────────
+    const generatePersonalizedScript = (lead: Lead) => {
+        const currentLead = lead as any
+        const issue = {
+            'A': `${lead.company} doesn't have a website, so customers searching in ${lead.city || 'your area'} can't find you online`,
+            'B': `${lead.company}'s website doesn't load correctly on phones, which is how most people search today`,
+            'C': `${lead.company} has a great social presence but no website, so you're invisible on Google in ${lead.city || 'your area'}`
+        }[currentLead.website_category as 'A' | 'B' | 'C'] || `${lead.company}'s online presence could be improved to capture more local traffic`
+
+        return `Hi, is this the owner of ${lead.company}?\n\nMy name is ${operatorName}. I'm a web designer and I was looking up ${lead.category || 'local'} businesses in ${lead.city || 'your area'} — I noticed ${issue}.\n\nI put together a completely free preview of what a new site could look like for you. No pitch, just want to know if you'd like me to text you the link.\n\nWould that be alright?`
+    }
+
+    const handleOpenCallModal = (lead: Lead) => {
+        setSelectedLeadForCall(lead)
+        setCustomScript(generatePersonalizedScript(lead))
+    }
+
+    const handleInitiateCall = async () => {
+        if (!selectedLeadForCall || isInitiatingCall) return
+        setIsInitiatingCall(true)
+
+        try {
+            const res = await fetch('/api/mobile/test-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: selectedLeadForCall.phone,
+                    script: customScript,
+                    lead_id: selectedLeadForCall.id,
+                    voice: 'maya'
+                })
+            })
+
+            if (res.ok) {
+                setLeads(prev => prev.map(l => l.id === selectedLeadForCall.id ? { ...l, status: 'contacted' } : l))
+                setSelectedLeadForCall(null)
+            } else {
+                const err = await res.json()
+                alert(err.error || 'Failed to initiate call')
+            }
+        } catch (err) {
+            console.error('Call error:', err)
+            alert('Call initiation failed')
+        } finally {
+            setIsInitiatingCall(false)
         }
     }
 
@@ -296,7 +347,9 @@ export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
 
                                     <button
                                         onClick={async () => {
-                                            if (topLead.email) {
+                                            if (topLead.phone) {
+                                                handleOpenCallModal(topLead)
+                                            } else if (topLead.email) {
                                                 handleSendEmail(topLead.id)
                                             } else {
                                                 handleEnrich(topLead.id)
@@ -306,7 +359,7 @@ export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
                                         className="py-3 rounded-xl bg-slate-900 text-white font-bold tracking-wide active:scale-95 transition-all text-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.2)] disabled:opacity-50 flex items-center justify-center gap-2"
                                     >
                                         <Bot className="w-4 h-4" />
-                                        {isProcessing ? 'Working...' : (topLead.email ? 'Queue Email' : 'Auto Enrich')}
+                                        {isProcessing ? 'Working...' : (topLead.phone ? 'Review & Call' : topLead.email ? 'Queue Email' : 'Auto Enrich')}
                                     </button>
                                 </div>
                             </div>
@@ -354,13 +407,22 @@ export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
                                             {loading === 'enriching' ? '⏳ Enriching' : '🔍 Enrich'}
                                         </button>
                                     )}
+                                    {lead.phone && !['contacted'].includes(lead.status) && (
+                                        <button
+                                            onClick={() => handleOpenCallModal(lead)}
+                                            disabled={!!loading}
+                                            className="touch-target flex-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                                        >
+                                            <Phone className="w-4 h-4" /> Call
+                                        </button>
+                                    )}
                                     {lead.email && !['contacted', 'emailed'].includes(lead.status) && (
                                         <button
                                             onClick={() => handleSendEmail(lead.id)}
                                             disabled={!!loading}
                                             className="touch-target flex-1 rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition disabled:opacity-50 text-sm"
                                         >
-                                            {loading === 'emailing' ? '⏳ Sending' : '📧 Send'}
+                                            {loading === 'emailing' ? '⏳ Sending' : '📧 Email'}
                                         </button>
                                     )}
                                 </div>
@@ -472,6 +534,61 @@ export function RealtimeLeads({ initialLeads }: { initialLeads: Lead[] }) {
                     </table>
                 </div>
             </div>
+
+            {/* ─── Call Preview Modal ─── */}
+            {selectedLeadForCall && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] animate-in fade-in duration-300" onClick={() => setSelectedLeadForCall(null)} />
+                    <div className="fixed left-0 right-0 bottom-0 md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 z-[101] bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-6 md:w-[480px] animate-in slide-in-from-bottom duration-300">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+                                    <Phone className="h-6 w-6 text-emerald-600" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-xl text-slate-900">Initiate AI Call</h3>
+                                    <p className="text-sm text-slate-500 font-medium">To: {selectedLeadForCall.company}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedLeadForCall(null)} className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
+                                <div className="text-sm font-semibold text-slate-700">
+                                    Target Number: {selectedLeadForCall.phone?.replace(/(\d{3})(\d{3})(\d{4})/, '($1) ***-$4')}
+                                </div>
+                                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Review Script</label>
+                                <textarea
+                                    rows={8}
+                                    value={customScript}
+                                    onChange={(e) => setCustomScript(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-700 text-[15px] leading-relaxed focus:ring-2 focus:ring-emerald-500 outline-none resize-none transition-all shadow-inner"
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleInitiateCall}
+                                disabled={isInitiatingCall}
+                                className="w-full h-16 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl shadow-xl shadow-emerald-200 font-bold text-lg flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {isInitiatingCall ? <Clock className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
+                                {isInitiatingCall ? 'Connecting...' : 'Confirm & Call Now'}
+                            </button>
+
+                            <p className="text-center text-xs text-slate-400 font-medium px-4">
+                                Once confirmed, Bland.ai will dial immediately. The call will be logged under {operatorName}'s session.
+                            </p>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     )
 }

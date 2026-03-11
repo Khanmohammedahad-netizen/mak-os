@@ -20,7 +20,10 @@ export default async function LeadsPage() {
                 <h1 className="text-3xl font-bold">Leads Pipeline</h1>
             </div>
 
-            <RealtimeLeads initialLeads={leads || []} />
+            <RealtimeLeads
+                initialLeads={leads || []}
+                operatorName={process.env.OPERATOR_NAME || 'Mohammed'}
+            />
         </div>
     )
 }

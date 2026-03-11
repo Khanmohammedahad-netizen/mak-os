@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-    LayoutDashboard, Target, Bot, Menu, X, LogOut, Users, Briefcase, GitBranch, Clock
+    LayoutDashboard, Target, Bot, Phone, Menu, X, LogOut, Users, Briefcase, GitBranch, Clock
 } from 'lucide-react'
 import { useSupabase } from './providers/supabase-provider'
 
 const mainRoutes = [
     { label: 'Home', icon: LayoutDashboard, href: '/dashboard', color: 'text-sky-500' },
+    { label: 'Calls', icon: Phone, href: '/dashboard/calls', color: 'text-emerald-400' },
     { label: 'Leads', icon: Target, href: '/dashboard/leads', color: 'text-emerald-500' },
     { label: 'Agents', icon: Bot, href: '/dashboard/agents', color: 'text-cyan-400' },
 ]
@@ -32,7 +33,7 @@ export function MobileNav() {
             {/* Mobile Top Header (Sticky Top) */}
             <div className="md:hidden fixed top-0 left-0 right-0 z-[40] bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white flex items-center justify-between px-4 h-[60px] shadow-sm">
                 <Link href="/dashboard" className="flex items-center gap-2">
-                    <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">MAK OS</h1>
+                    <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">MAK OS V1</h1>
                 </Link>
                 {/* Optional Status Icon here */}
                 <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
