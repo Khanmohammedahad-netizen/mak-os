@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { sendSMSViaGateway } from '@/lib/agents/sms-gateway-agent'
 
 export async function POST(request: NextRequest) {
     try {
+        const { supabaseAdmin: supabase } = await import('@/lib/supabase-admin')
         const body = await request.json()
         const leadId = body.metadata?.lead_id
 
@@ -78,6 +78,7 @@ function classifyCallOutcome(data: any, transcripts: any[]): string {
  * after an AI Call concludes with a voicemail or an "interested" outcome.
  */
 async function triggerPostCallSMS(leadId: string, outcome: string) {
+    const { supabaseAdmin: supabase } = await import('@/lib/supabase-admin')
     // 1. Look up the lead to get their phone number and details
     const { data: lead } = await supabase
         .from('leads')

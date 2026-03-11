@@ -21,8 +21,6 @@ interface SMSOutput {
  */
 export async function generateSMS(input: SMSInput): Promise<SMSOutput> {
     const operator = input.operatorName || 'Mohammed'
-    const domain = process.env.NEXT_PUBLIC_SITE_URL || 'maksoftware.io'
-    const link = `${domain}/preview/${input.previewSlug}`
 
     let body = ''
 

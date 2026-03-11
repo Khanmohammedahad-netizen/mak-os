@@ -1,5 +1,3 @@
-import { supabaseAdmin as supabase } from '../supabase-admin'
-
 export interface CarrierResult {
     carrier: string | null
     gateway: string | null
@@ -35,7 +33,7 @@ export async function lookupCarrier(phoneNumber: string): Promise<CarrierResult>
     // relying on the 4-way multi-send strategy designed in Step 4 for unknown carriers.
 
     // In a paid production environment, this is where you would call Twilio Lookup API or similar.
-    let result = detectCarrierByPattern(formattedPhone)
+    const result = detectCarrierByPattern(formattedPhone)
 
     // Cache the result to avoid repeating the logic
     await cacheCarrierResult(formattedPhone, result)
@@ -45,6 +43,7 @@ export async function lookupCarrier(phoneNumber: string): Promise<CarrierResult>
 
 async function getCachedCarrier(formattedPhone: string): Promise<CarrierResult | null> {
     try {
+        const { supabaseAdmin: supabase } = await import('../supabase-admin')
         const { data, error } = await supabase
             .from('carrier_cache')
             .select('*')
@@ -66,6 +65,7 @@ async function getCachedCarrier(formattedPhone: string): Promise<CarrierResult |
 
 async function cacheCarrierResult(formattedPhone: string, result: CarrierResult) {
     try {
+        const { supabaseAdmin: supabase } = await import('../supabase-admin')
         await supabase
             .from('carrier_cache')
             .upsert({
@@ -80,7 +80,7 @@ async function cacheCarrierResult(formattedPhone: string, result: CarrierResult)
     }
 }
 
-function detectCarrierByPattern(formattedPhone: string): CarrierResult {
+function detectCarrierByPattern(_formattedPhone: string): CarrierResult {
     // Without a paid API, we cannot reliably detect the exact carrier.
     // We return 'unknown' which triggers the 'send to top 4 carriers simultaneously' fallback strategy.
 

@@ -9,7 +9,7 @@
 export function generateInstagramComment(
     businessName: string,
     websiteCategory: 'A' | 'B' | 'C' | 'D',
-    industryCategory?: string
+    _industryCategory?: string
 ): string {
 
     // Category C (Social Only) is the primary target for this channel

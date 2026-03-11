@@ -1,8 +1,6 @@
-import { supabaseAdmin as supabase } from '../supabase-admin'
 import { generateSMS, sendSMSViaGateway } from './sms-gateway-agent'
 import { sendWhatsAppMessage } from '../channels/whatsapp'
 import { initiateAICall, generateCallScript } from './ai-call-agent'
-import { generateInstagramComment } from '../channels/instagram-dm'
 import { lookupCarrier } from '../phone/carrier-lookup'
 
 export interface PhoneLead {
@@ -68,9 +66,8 @@ export function selectChannel(lead: PhoneLead): ChannelDecision {
 /**
  * Executes a specific outreach channel. Returns true if successful.
  */
-async function executeChannel(channel: OutreachChannel, lead: PhoneLead, context: { touchNumber: number }): Promise<boolean> {
+async function executeChannel(channel: OutreachChannel, lead: PhoneLead, _context: { touchNumber: number }): Promise<boolean> {
     const slug = lead.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-    const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://maksoftware.io'
 
     try {
         if (channel === 'sms_gateway') {
@@ -125,6 +122,7 @@ async function executeChannel(channel: OutreachChannel, lead: PhoneLead, context
  * Triggers the Touch sequence for a specific lead.
  */
 export async function processLeadSequence(lead: PhoneLead, touchNumber: 1 | 2 | 3): Promise<{ success: boolean; channelUsed: string; error?: string }> {
+    const { supabaseAdmin: supabase } = await import('../supabase-admin')
 
     // 1. Double check the suppression list
     const { data: supressed } = await supabase.from('phone_suppression_list').select('phone_number').eq('phone_number', lead.phone).single()
@@ -132,7 +130,7 @@ export async function processLeadSequence(lead: PhoneLead, touchNumber: 1 | 2 | 
         return { success: false, channelUsed: 'none', error: 'Number is suppressed' }
     }
 
-    let decision = selectChannel(lead)
+    const decision = selectChannel(lead)
     let selectedChannel = decision.primaryChannel
     let bodyUsed = ''
 
