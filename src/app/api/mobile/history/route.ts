@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase-admin'
 
 /**
  * GET /api/mobile/history
@@ -11,6 +10,8 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url)
         const limit = Math.min(100, parseInt(searchParams.get('limit') || '50'))
+
+        const { supabaseAdmin } = await import('@/lib/supabase-admin')
 
         // Fetch recent leads
         const { data: leads, error } = await supabaseAdmin

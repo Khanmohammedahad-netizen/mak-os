@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { processOutreachQueue } from '@/lib/outreach-queue'
 
 /**
@@ -9,6 +8,7 @@ import { processOutreachQueue } from '@/lib/outreach-queue'
  */
 export async function POST() {
     try {
+        const { supabaseAdmin: supabase } = await import('@/lib/supabase-admin')
         const result = await processOutreachQueue(supabase)
 
         return NextResponse.json({
