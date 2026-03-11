@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+
 
 // ─── Intent Matching (inline — no external imports needed) ───────────
 
@@ -120,10 +120,11 @@ export async function POST(request: Request) {
 
                     // ─── Run Full Autonomous Outreach Pipeline ─────────
                     const { runOutreachPipeline } = await import('@/lib/outreach-engine')
+                    const { supabaseAdmin } = await import('@/lib/supabase-admin')
 
                     logs.push(`[System] Running autonomous outreach pipeline...`)
                     const outreachResult = await runOutreachPipeline(
-                        searchQuery, region, supabase, { maxResults: 20 }
+                        searchQuery, region, supabaseAdmin, { maxResults: 20 }
                     )
 
                     // Merge outreach logs into the main logs
