@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { runOutreachPipeline } from '@/lib/outreach-engine'
 
 /**
@@ -20,6 +19,7 @@ export async function POST(request: Request) {
             )
         }
 
+        const { supabaseAdmin: supabase } = await import('@/lib/supabase-admin')
         const result = await runOutreachPipeline(category, city, supabase, {
             maxResults: maxResults || 20,
             dryRun: dryRun || false,

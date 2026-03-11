@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronSecret, cronUnauthorized } from '@/lib/cron-auth'
 import { runOutreachPipeline } from '@/lib/outreach-engine'
 
-import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export const maxDuration = 300 // 5 minutes — Vercel Pro allows up to 900s
 
@@ -15,6 +14,7 @@ export async function GET(request: NextRequest) {
     const runId = crypto.randomUUID()
 
     try {
+        const { supabaseAdmin } = await import('@/lib/supabase-admin')
         const supabase = supabaseAdmin // Use admin for cron jobs to bypass RLS if needed, or stick to server client
 
         // Get the configured cities and category for today
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         console.error('[DailyRunCron] Failed:', error)
 
+        const { supabaseAdmin } = await import('@/lib/supabase-admin')
         await supabaseAdmin.from('pipeline_runs').update({
             status: 'failed',
             error: errorMessage
