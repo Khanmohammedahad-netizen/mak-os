@@ -144,7 +144,8 @@ export function parseTaskInput(input: string): ParsedTask {
     city = city.replace(/\b(without|with|that|no|website|websites)\b.*$/i, '').trim()
 
     // ── Check for generic input ──
-    const isGeneric = GENERIC_TERMS.some(term => lower.includes(term))
+    // Use word boundaries so "all" doesn't match inside "Dallas"
+    const isGeneric = GENERIC_TERMS.some(term => new RegExp(`\\b${term}\\b`, 'i').test(lower))
     if (isGeneric) {
         return {
             city,
