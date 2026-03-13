@@ -33,33 +33,24 @@ export interface EnrichedContact {
     socials: string[]
 }
 
-/**
- * Common City Resolver for International Support
- */
-function resolveCityName(city: string): string {
-    const cityMap: Record<string, string> = {
-        'chicago': 'Chicago, IL, USA',
-        'houston': 'Houston, TX, USA',
-        'dallas': 'Dallas, TX, USA',
-        'miami': 'Miami, FL, USA',
-        'new york': 'New York, NY, USA',
-        'nyc': 'New York, NY, USA',
-        'la': 'Los Angeles, CA, USA',
-        'los angeles': 'Los Angeles, CA, USA',
-        'phoenix': 'Phoenix, AZ, USA',
-        'denver': 'Denver, CO, USA',
-        'seattle': 'Seattle, WA, USA',
-        'atlanta': 'Atlanta, GA, USA',
-        'boston': 'Boston, MA, USA',
-        'dubai': 'Dubai, United Arab Emirates',
-        'abu dhabi': 'Abu Dhabi, United Arab Emirates',
-        'mumbai': 'Mumbai, Maharashtra, India',
-        'delhi': 'New Delhi, India',
-        'london': 'London, United Kingdom',
-        'toronto': 'Toronto, Ontario, Canada',
-    }
-
-    return cityMap[city.toLowerCase()] || `${city}, USA`
+const CITY_MAP: Record<string, string> = {
+    'chicago': 'Chicago, IL, USA',
+    'houston': 'Houston, TX, USA',
+    'dallas': 'Dallas, TX, USA',
+    'miami': 'Miami, FL, USA',
+    'new york': 'New York, NY, USA',
+    'nyc': 'New York, NY, USA',
+    'los angeles': 'Los Angeles, CA, USA',
+    'la': 'Los Angeles, CA, USA',
+    'phoenix': 'Phoenix, AZ, USA',
+    'denver': 'Denver, CO, USA',
+    'seattle': 'Seattle, WA, USA',
+    'atlanta': 'Atlanta, GA, USA',
+    'boston': 'Boston, MA, USA',
+    'dubai': 'Dubai, United Arab Emirates',
+    'mumbai': 'Mumbai, India',
+    'london': 'London, United Kingdom',
+    'toronto': 'Toronto, Canada',
 }
 
 /**
@@ -127,7 +118,7 @@ async function runActorAndGetResults<T>(
 }
 
 /**
- * Reliable Google Maps Scraper
+ * Reliable Google Maps Scraper (User-provided polling implementation)
  */
 export async function scrapeGoogleMaps(
     category: string,
@@ -135,61 +126,132 @@ export async function scrapeGoogleMaps(
     maxResults = 20,
     supabase?: any
 ): Promise<GoogleMapsLead[]> {
-    // Debug Mode (Save Credits)
-    if (process.env.APIFY_DEBUG === 'true') {
-        console.log('[Apify] DEBUG MODE — returning mock data')
-        return [
-            {
-                name: `Test ${category} in ${city}`,
-                address: '123 Main St',
-                city: city,
-                rating: 4.3,
-                reviewCount: 45,
-                website: null,
-                phone: '+17135550100',
-                email: null,
-                category: category,
-                noWebsiteConfirmed: true
-            }
-        ]
-    }
-
-    const cityResolved = resolveCityName(city)
-    const searchString = `${category} in ${cityResolved}`
-
-    try {
-        const items = await runActorAndGetResults<any>(ACTOR_ID, {
-            searchStringsArray: [searchString],
-            maxCrawledPlacesPerSearch: maxResults,
-            language: 'en',
-            maxImages: 0,
-            maxReviews: 0,
-            scrapeReviewerInfo: false,
-            scrapeTableReservationProvider: false,
-            skipClosedPlaces: false,
-        })
-
-        await trackApiCost({ service: 'apify', action: 'google_maps_scrape', estimated_cost_usd: 0.05 })
-
-        return items
-            .filter(item => !item.permanentlyClosed)
-            .map(item => ({
-                name: item.title || item.name || 'Unknown',
-                address: item.address || item.street || null,
-                phone: item.phone || item.phoneNumber || null,
-                email: item.email || null,
-                website: item.website || null,
-                rating: item.totalScore || item.rating || null,
-                reviewCount: item.reviewsCount || item.reviews || null,
-                category: item.categoryName || item.category || category,
-                city: city,
-                noWebsiteConfirmed: !item.website
-            }))
-    } catch (err: any) {
-        console.error(`[Apify] Scrape failed: ${err.message}`)
+    const TOKEN_VAR = process.env.APIFY_API_TOKEN
+    if (!TOKEN_VAR) {
+        console.error('[Apify] ERROR: APIFY_API_TOKEN env var is missing')
         return []
     }
+
+    // Debug mode — returns fake data to test pipeline without Apify
+    if (process.env.APIFY_DEBUG === 'true') {
+        console.log('[Apify] DEBUG MODE ON — returning mock data')
+        return Array.from({ length: 5 }, (_, i) => ({
+            name: `Test ${category} ${i + 1} - ${city}`,
+            address: `${100 + i} Main St, ${city}`,
+            city,
+            rating: 4.2 + (i * 0.1),
+            reviewCount: 30 + (i * 10),
+            website: null,
+            phone: `+1214555010${i}`,
+            email: null,
+            category: category,
+            noWebsiteConfirmed: true,
+        }))
+    }
+
+    const resolvedCity = CITY_MAP[city.toLowerCase()] || `${city}, USA`
+    const searchString = `${category} in ${resolvedCity}`
+
+    console.log(`[Apify] Launching scrape for: "${searchString}"`)
+
+    // ── STEP 1: Start the actor run ──
+    const startRes = await fetch(
+        `${APIFY_BASE}/acts/${ACTOR_ID}/runs?token=${TOKEN_VAR}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                searchStringsArray: [searchString],
+                maxCrawledPlacesPerSearch: maxResults,
+                language: 'en',
+                maxImages: 0,
+                maxReviews: 0,
+                scrapeReviewerInfo: false,
+            }),
+        }
+    )
+
+    if (!startRes.ok) {
+        const errText = await startRes.text()
+        console.error(`[Apify] Failed to start run. Status: ${startRes.status}`)
+        console.error(`[Apify] Error: ${errText}`)
+        return []
+    }
+
+    const startData = await startRes.json()
+    const runId = startData?.data?.id
+    const datasetId = startData?.data?.defaultDatasetId
+
+    if (!runId) {
+        console.error('[Apify] No runId returned:', JSON.stringify(startData))
+        return []
+    }
+
+    console.log(`[Apify] Run started — ID: ${runId}`)
+
+    // ── STEP 2: Poll until the run finishes ──
+    // Poll every 3 seconds for up to 3 minutes (60 attempts)
+    for (let attempt = 1; attempt <= 60; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 3000))
+
+        const pollRes = await fetch(
+            `${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN_VAR}`
+        )
+        const pollData = await pollRes.json()
+        const status = pollData?.data?.status
+
+        console.log(`[Apify] Poll ${attempt}/60 — Status: ${status}`)
+
+        if (status === 'SUCCEEDED') {
+            // ── STEP 3: Fetch the results from the dataset ──
+            const dataRes = await fetch(
+                `${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN_VAR}&limit=${maxResults}&clean=true`
+            )
+
+            if (!dataRes.ok) {
+                console.error(`[Apify] Dataset fetch failed: ${dataRes.status}`)
+                return []
+            }
+
+            const items = await dataRes.json()
+            console.log(`[Apify] SUCCESS — ${items.length} businesses found`)
+
+            if (items.length === 0) {
+                console.warn(`[Apify] Run succeeded but returned 0 items for "${searchString}"`)
+                console.warn('[Apify] This may mean no results exist or the search query needs adjustment')
+            }
+
+            await trackApiCost({ service: 'apify', action: 'google_maps_scrape', estimated_cost_usd: 0.05 })
+
+            return items
+                .filter((item: any) => !item.permanentlyClosed)
+                .map((item: any) => ({
+                    name: item.title || item.name || '',
+                    address: item.address || item.street || '',
+                    city: city,
+                    rating: item.totalScore || null,
+                    reviewCount: item.reviewsCount || null,
+                    website: item.website || null,
+                    phone: item.phone || null,
+                    email: item.email || null,
+                    category: item.categoryName || category,
+                    noWebsiteConfirmed: !item.website,
+                }))
+        }
+
+        if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+            console.error(`[Apify] Run ended with status: ${status}`)
+            console.error('[Apify] Run details:', JSON.stringify(pollData?.data))
+            return []
+        }
+
+        // Still RUNNING or READY — keep polling
+    }
+
+    console.error('[Apify] Polling timed out after 3 minutes')
+    return []
 }
+
 
 /**
  * Contact Info Scraper

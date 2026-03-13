@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { runOutreachPipeline } from '@/lib/outreach-engine'
 import { parseTaskInput } from '@/lib/task-parser'
 
+export const maxDuration = 300 // 5 minutes — required for Apify polling
+
 /**
  * POST /api/mobile/run
  *
