@@ -12,7 +12,7 @@
 
 import { scrapeGoogleMaps, enrichContacts, verifyLeadWebsite, type GoogleMapsLead } from './apify'
 import { buildOutreachVariants } from './zoho-mail'
-import { sendViaBrevo } from './email/brevo-sender'
+import { sendWithRetry } from './email/brevo'
 import { getDailyLimit, getDelayBetweenEmails } from './email/warmup-schedule'
 import { isSuppressed } from './email/bounce-handler'
 import { evaluateVariants } from './quality-gate'
@@ -511,27 +511,25 @@ export async function runOutreachPipeline(
 
                 // ─── Stage 7: AutomationAgent — Send email via Brevo
                 try {
-                    const htmlBody = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;line-height:1.6;"><p>${gate.selected_body!.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p></div>`
-                    const mailResult = await sendViaBrevo(
-                        lead.email,
-                        gate.selected_subject!,
-                        gate.selected_body!,
-                        htmlBody,
-                        'Mohammed Ahad' // From name config
-                    )
+                    const resultMail = await sendWithRetry({
+                        to: lead.email,
+                        subject: gate.selected_subject!,
+                        body: gate.selected_body!,
+                        replyTo: process.env.OUTREACH_FROM_EMAIL
+                    })
 
-                    if (!mailResult.success) {
-                        throw new Error(mailResult.error || 'Failed sending via Brevo')
+                    if (!resultMail.success) {
+                        throw new Error(resultMail.error || 'Failed sending via Brevo after retries')
                     }
 
-                    logs.push(`[Stage 7] AutomationAgent: Email sent to ${lead.name} (${lead.email})`)
+                    logs.push(`[Automation] Email sent to ${lead.name}`)
                     result.emailsSent++
 
                     // ─── Stage 8: CRM Update
                     await supabase.from('leads').update({
                         status: 'contacted',
                         contacted_at: new Date().toISOString(),
-                        message_id: mailResult.messageId,
+                        message_id: resultMail.messageId,
                         outreach_message: gate.selected_body!.substring(0, 500),
                         contact_method: 'emailed',
                     }).eq('id', leadId)
@@ -564,8 +562,9 @@ export async function runOutreachPipeline(
 
                     // Protect Domain Reputation: Wait before sending the next email
                     if (i < leadsToProcess.length - 1) {
-                        logs.push(`[Stage 7] Waiting ${delayMinutes} min before the next email to protect reputation...`)
-                        await new Promise(resolve => setTimeout(resolve, delayMinutes * 60 * 1000))
+                        const delay = 8 * 60 * 1000 // 8 minutes between sends
+                        logs.push(`[Automation] Waiting 8 min before next send...`)
+                        await new Promise(resolve => setTimeout(resolve, delay))
                     }
 
                 } catch (sendErr: any) {
