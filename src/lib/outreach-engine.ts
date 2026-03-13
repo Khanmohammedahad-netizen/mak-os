@@ -13,6 +13,7 @@
 import { scrapeGoogleMaps, enrichContacts, verifyLeadWebsite, type GoogleMapsLead } from './apify'
 import { sendEmail, buildOutreachVariants } from './zoho-mail'
 import { evaluateVariants } from './quality-gate'
+import { checkDailyBudgetCap } from './cost-tracker'
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -254,6 +255,15 @@ export async function runOutreachPipeline(
             logs.push(`[Pipeline] Warning: Could not find owner_id, inserts may fail`)
         }
 
+        // ─── Stage 0: Budget Cap Check ──────────────
+        const budgetCap = parseFloat(process.env.DAILY_BUDGET_CAP || '1.00')
+        const { overBudget, currentSpend } = await checkDailyBudgetCap(supabase, budgetCap)
+        if (overBudget) {
+            logs.push(`[Budget] CRITICAL: Daily cap of $${budgetCap.toFixed(2)} reached. Spend: $${currentSpend.toFixed(2)}. Halting pipeline.`)
+            result.errors++
+            return result
+        }
+
         // ─── Stage 1: ResearchAgent — Scrape ──────────────
         const rawLeads: GoogleMapsLead[] = []
         const MAX_TOTAL_LEADS = categories.length > 1 ? 100 : maxResults
@@ -327,10 +337,15 @@ export async function runOutreachPipeline(
 
         // Sort by priority (highest first)
         qualified.sort((a, b) => b.priorityScore - a.priorityScore)
-        result.qualified = qualified.length
-        logs.push(`[Stage 2] ${qualified.length} qualified leads (sorted by priority) - Discarded: ${discardedCount}`)
 
-        if (qualified.length === 0) {
+        // Cost-Optimization: Keep strict top 5 to prevent massive enrichment waste
+        const MAX_TO_ENRICH = categories.length * 5;
+        const topQualified = qualified.slice(0, MAX_TO_ENRICH);
+
+        result.qualified = topQualified.length
+        logs.push(`[Stage 2] ${topQualified.length} qualified leads kept (cost-optimization limit) - Discarded raw: ${discardedCount + (qualified.length - topQualified.length)}`)
+
+        if (topQualified.length === 0) {
             logs.push(`[Stage 2] No qualified leads found. Pipeline complete.`)
             return result
         }
@@ -339,7 +354,7 @@ export async function runOutreachPipeline(
         logs.push(`[Stage 3] WebsiteAuditAgent: Auditing websites...`)
         const websiteQualified: typeof qualified = []
 
-        for (const lead of qualified) {
+        for (const lead of topQualified) {
             // Stage 3.1: Active Website Verification (v1.2)
             if (!lead.website || lead.noWebsiteConfirmed) {
                 const verifiedUrl = await verifyLeadWebsite(lead.name, lead.city || city)

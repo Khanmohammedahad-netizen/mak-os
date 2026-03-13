@@ -117,13 +117,19 @@ async function runActorAndGetResults<T>(
     throw new Error('Apify polling timeout')
 }
 
+function getWeekKey(): string {
+    const now = new Date()
+    const weekNum = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000))
+    return `week_${weekNum}`
+}
+
 /**
- * Reliable Google Maps Scraper (User-provided polling implementation)
+ * Reliable Google Maps Scraper (User-provided polling implementation + Caching)
  */
 export async function scrapeGoogleMaps(
     category: string,
     city: string,
-    maxResults = 20,
+    maxResults = 15,
     supabase?: any
 ): Promise<GoogleMapsLead[]> {
     const TOKEN_VAR = process.env.APIFY_API_TOKEN
@@ -151,8 +157,27 @@ export async function scrapeGoogleMaps(
 
     const resolvedCity = CITY_MAP[city.toLowerCase()] || `${city}, USA`
     const searchString = `${category} in ${resolvedCity}`
+    const cacheKey = `${city.toLowerCase()}_${category.toLowerCase()}_${getWeekKey()}`
 
-    console.log(`[Apify] Launching scrape for: "${searchString}"`)
+    // ── STEP 0: Check cache first ──
+    if (supabase) {
+        try {
+            const { data: cached } = await supabase
+                .from('research_cache')
+                .select('raw_data')
+                .eq('cache_key', cacheKey)
+                .single()
+
+            if (cached?.raw_data) {
+                console.log(`[Cache] HIT for ${category} in ${city} — no Apify call needed`)
+                return cached.raw_data as GoogleMapsLead[]
+            }
+        } catch (e) {
+            // cache miss or table missing, proceed
+        }
+    }
+
+    console.log(`[Cache] MISS for ${category} in ${city} — Launching scrape for: "${searchString}"`)
 
     // ── STEP 1: Start the actor run ──
     const startRes = await fetch(
@@ -162,7 +187,7 @@ export async function scrapeGoogleMaps(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 searchStringsArray: [searchString],
-                maxCrawledPlacesPerSearch: maxResults,
+                maxCrawledPlacesPerSearch: 15, // Hard limit to 15
                 language: 'en',
                 maxImages: 0,
                 maxReviews: 0,
@@ -223,7 +248,7 @@ export async function scrapeGoogleMaps(
 
             await trackApiCost({ service: 'apify', action: 'google_maps_scrape', estimated_cost_usd: 0.05 })
 
-            return items
+            const formattedItems = items
                 .filter((item: any) => !item.permanentlyClosed)
                 .map((item: any) => ({
                     name: item.title || item.name || '',
@@ -237,6 +262,24 @@ export async function scrapeGoogleMaps(
                     category: item.categoryName || category,
                     noWebsiteConfirmed: !item.website,
                 }))
+
+            // Store in cache
+            if (supabase) {
+                try {
+                    await supabase.from('research_cache').upsert({
+                        cache_key: cacheKey,
+                        raw_data: formattedItems,
+                        city,
+                        category,
+                        created_at: new Date().toISOString(),
+                        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+                    })
+                } catch (e) {
+                    console.error('[Cache] Failed to store results', e)
+                }
+            }
+
+            return formattedItems
         }
 
         if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {

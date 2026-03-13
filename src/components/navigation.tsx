@@ -13,7 +13,9 @@ import {
     Phone,
     LogOut,
     Clock,
+    Kanban,
 } from 'lucide-react'
+
 import { useSupabase } from './providers/supabase-provider'
 
 const routes = [
@@ -64,6 +66,12 @@ const routes = [
         icon: Clock,
         href: '/dashboard/history',
         color: 'text-amber-400',
+    },
+    {
+        label: 'Pipeline',
+        icon: Kanban,
+        href: '/dashboard/pipeline',
+        color: 'text-indigo-400',
     },
 ]
 
