@@ -10,7 +10,7 @@
  * Stage 7: CRM Update         → Update Supabase lead status + log activity
  */
 
-import { scrapeGoogleMaps, enrichContacts, type GoogleMapsLead } from './apify'
+import { scrapeGoogleMaps, enrichContacts, verifyLeadWebsite, type GoogleMapsLead } from './apify'
 import { sendEmail, buildOutreachVariants } from './zoho-mail'
 import { evaluateVariants } from './quality-gate'
 
@@ -42,7 +42,7 @@ interface QualifiedLead extends GoogleMapsLead {
 
 const CHAIN_BLACKLIST = [
     'starbucks', 'mcdonalds', 'subway', 'burger king', 'kfc',
-    'pizza hut', 'dominos', 'chipotle', 'dunkin', 'wendys',
+    'pizza_hut', 'dominos', 'chipotle', 'dunkin', 'wendys',
     'taco bell', 'popeyes', 'chick-fil-a', 'panda express',
     'five guys', 'jack in the box', 'sonic', 'arbys', 'ihop',
     'applebees', 'olive garden', 'red lobster', 'outback',
@@ -137,8 +137,8 @@ function auditWebsite(lead: GoogleMapsLead): { category: AuditCategory; summary:
 
     if (!lead.website || lead.noWebsiteConfirmed) {
         return {
-            category: 'A - No Website',
-            summary: `${businessName} doesn't currently have a website — customers searching for your services in ${city} can't find you online, and you're losing foot traffic to competitors who do show up in search results.`
+            category: 'A - Needs Website',
+            summary: `Needs Website - Potential Client: ${businessName} doesn't currently have a verified website – they're losing foot traffic to competitors who show up in search results in ${city}.`
         }
     }
 
@@ -215,19 +215,8 @@ async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: 
         }
     }
 
-    // Stage 4.4: Pattern Guessing
-    if (domain) {
-        const guessedEmail = `info@${domain}`
-        logs.push(`[Stage 4] ${lead.name}: Guessed pattern email (${guessedEmail})`)
-        if (supabase) {
-            await supabase.from('email_cache').upsert({
-                domain, email: guessedEmail, confidence: 'guessed', source: 'pattern'
-            })
-        }
-        return guessedEmail
-    }
-
-    logs.push(`[Stage 4] ${lead.name}: No email found -> routing to phone queue`)
+    // Stage 4.4: Removed Pattern Guessing (v1.2 Policy: No placeholder fabrication)
+    logs.push(`[Stage 4] ${lead.name}: No verified email found -> website search required`)
     return null
 }
 
@@ -245,12 +234,13 @@ async function getOwnerId(supabase: any): Promise<string | null> {
 // ─── Main Pipeline ────────────────────────────────────────────────
 
 export async function runOutreachPipeline(
-    category: string,
+    categoryOrCategories: string | string[],
     city: string,
     supabase: any,
     options: { maxResults?: number; dryRun?: boolean } = {}
 ): Promise<OutreachResult> {
     const { maxResults = 20, dryRun = false } = options
+    const categories = Array.isArray(categoryOrCategories) ? categoryOrCategories : [categoryOrCategories]
     const logs: string[] = []
     const result: OutreachResult = {
         discovered: 0, qualified: 0, enriched: 0,
@@ -265,17 +255,44 @@ export async function runOutreachPipeline(
         }
 
         // ─── Stage 1: ResearchAgent — Scrape ──────────────
-        logs.push(`[Stage 1] ResearchAgent: Scraping "${category}" in "${city}"`)
-        const rawLeads = await scrapeGoogleMaps(category, city, maxResults, supabase)
-        result.discovered = rawLeads.length
-        logs.push(`[Stage 1] Discovered ${rawLeads.length} businesses`)
+        const rawLeads: GoogleMapsLead[] = []
+        const MAX_TOTAL_LEADS = categories.length > 1 ? 100 : maxResults
+
+        if (categories.length > 1) {
+            logs.push(`[Stage 1] ResearchAgent: Searching ${categories.length} categories in ${city}...`)
+
+            for (const cat of categories) {
+                try {
+                    // For multi-category, we fetch a smaller number per category but cap the total
+                    const catLeads = await scrapeGoogleMaps(cat, city, 15, supabase)
+                    rawLeads.push(...catLeads)
+                    logs.push(`[Stage 1] ${cat} → ${catLeads.length} found`)
+
+                    if (rawLeads.length >= MAX_TOTAL_LEADS) break
+                } catch (e: any) {
+                    logs.push(`[Stage 1] Error searching for ${cat}: ${e.message}`)
+                }
+            }
+        } else {
+            logs.push(`[Stage 1] ResearchAgent: Scraping "${categories[0]}" in "${city}"`)
+            const singleCatLeads = await scrapeGoogleMaps(categories[0], city, maxResults, supabase)
+            rawLeads.push(...singleCatLeads)
+        }
+
+        // De-duplicate by URL or Name+Phone
+        const uniqueLeads = Array.from(new Map(
+            rawLeads.map(item => [item.website || `${item.name}-${item.phone}`, item])
+        ).values()).slice(0, MAX_TOTAL_LEADS)
+
+        result.discovered = uniqueLeads.length
+        logs.push(`[Stage 1] Total: ${uniqueLeads.length} businesses discovered`)
 
         // ─── Stage 2: LeadFinderAgent — Qualify ───────────
         logs.push(`[Stage 2] LeadFinderAgent: Qualifying leads...`)
         const qualified: QualifiedLead[] = []
         let discardedCount = 0
 
-        for (const lead of rawLeads) {
+        for (const lead of uniqueLeads) {
             // Chain filter
             if (isFranchise(lead.name)) {
                 logs.push(`[Stage 2] Filtered chain/franchise: ${lead.name}`)
@@ -323,7 +340,17 @@ export async function runOutreachPipeline(
         const websiteQualified: typeof qualified = []
 
         for (const lead of qualified) {
-            // Perform Website Audit
+            // Stage 3.1: Active Website Verification (v1.2)
+            if (!lead.website || lead.noWebsiteConfirmed) {
+                const verifiedUrl = await verifyLeadWebsite(lead.name, lead.city || city)
+                if (verifiedUrl) {
+                    lead.website = verifiedUrl
+                    lead.noWebsiteConfirmed = false
+                    logs.push(`[Stage 3] ${lead.name}: Website found via active verification → ${verifiedUrl}`)
+                }
+            }
+
+            // Stage 3.2: Perform Website Audit
             const audit = auditWebsite(lead)
 
             if (audit.category === 'D - Good Website') {
@@ -385,11 +412,11 @@ export async function runOutreachPipeline(
                 email: lead.email || null,
                 phone: lead.phone || null,
                 city: lead.city || city,
-                category: lead.category || category,
+                category: lead.category || categories[0],
                 website: lead.website || null,
                 source: 'Google Maps',
                 priority_score: Math.round(lead.priorityScore),
-                contact_method: lead.email ? 'email' : 'phone',
+                contact_method: lead.email ? 'email' : 'website search required',
             }
 
             // owner_id is required

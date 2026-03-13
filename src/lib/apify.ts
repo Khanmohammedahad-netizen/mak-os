@@ -1,20 +1,17 @@
 /**
- * Apify Client — Lightweight wrapper around Apify REST API.
+ * Apify Client — Fully Rebuilt for Reliability (v1.2)
  *
- * Two main functions:
- *   - scrapeGoogleMaps()  → Google Maps Scraper (compass/crawler-google-places)
+ * Core functions:
+ *   - scrapeGoogleMaps()  → Reliable Google Maps Scraper (compass/crawler-google-places)
  *   - enrichContacts()    → Contact Info Scraper (vdrmota/contact-info-scraper)
+ *   - verifyLeadWebsite() → Google Search Verification for "Needs Website" leads
  */
 
+import { trackApiCost } from './cost-tracker'
+
 const APIFY_BASE = 'https://api.apify.com/v2'
-
-function getToken(): string {
-    const token = process.env.APIFY_TOKEN
-    if (!token) throw new Error('APIFY_TOKEN is not set in environment variables.')
-    return token
-}
-
-// ─── Types ────────────────────────────────────────────────────────
+const ACTOR_ID = 'compass~crawler-google-places'
+const TOKEN = process.env.APIFY_API_TOKEN || process.env.APIFY_TOKEN
 
 export interface GoogleMapsLead {
     name: string
@@ -36,18 +33,51 @@ export interface EnrichedContact {
     socials: string[]
 }
 
-// ─── Run Actor & Wait for Dataset ─────────────────────────────────
+/**
+ * Common City Resolver for International Support
+ */
+function resolveCityName(city: string): string {
+    const cityMap: Record<string, string> = {
+        'chicago': 'Chicago, IL, USA',
+        'houston': 'Houston, TX, USA',
+        'dallas': 'Dallas, TX, USA',
+        'miami': 'Miami, FL, USA',
+        'new york': 'New York, NY, USA',
+        'nyc': 'New York, NY, USA',
+        'la': 'Los Angeles, CA, USA',
+        'los angeles': 'Los Angeles, CA, USA',
+        'phoenix': 'Phoenix, AZ, USA',
+        'denver': 'Denver, CO, USA',
+        'seattle': 'Seattle, WA, USA',
+        'atlanta': 'Atlanta, GA, USA',
+        'boston': 'Boston, MA, USA',
+        'dubai': 'Dubai, United Arab Emirates',
+        'abu dhabi': 'Abu Dhabi, United Arab Emirates',
+        'mumbai': 'Mumbai, Maharashtra, India',
+        'delhi': 'New Delhi, India',
+        'london': 'London, United Kingdom',
+        'toronto': 'Toronto, Ontario, Canada',
+    }
 
+    return cityMap[city.toLowerCase()] || `${city}, USA`
+}
+
+/**
+ * Generic Actor Runner with Polling & Logging
+ */
 async function runActorAndGetResults<T>(
     actorId: string,
     input: Record<string, unknown>,
     timeoutMs = 120_000
 ): Promise<T[]> {
-    const token = getToken()
+    if (!TOKEN) throw new Error('APIFY_API_TOKEN is not set')
+
+    console.log(`[Apify] Starting actor: ${actorId}`)
+    console.log(`[Apify] Input: ${JSON.stringify(input, null, 2)}`)
 
     // 1. Start the actor run
-    const runRes = await fetch(
-        `${APIFY_BASE}/acts/${actorId}/runs?token=${token}`,
+    const startRes = await fetch(
+        `${APIFY_BASE}/acts/${actorId}/runs?token=${TOKEN}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -55,225 +85,164 @@ async function runActorAndGetResults<T>(
         }
     )
 
-    if (!runRes.ok) {
-        const err = await runRes.text()
-        throw new Error(`Apify actor start failed (${runRes.status}): ${err}`)
+    if (!startRes.ok) {
+        const err = await startRes.text()
+        console.error('[Apify] Failed to start run:', startRes.status, err)
+        throw new Error(`Apify start failed: ${err}`)
     }
 
-    const runData = await runRes.json()
-    const runId: string = runData.data.id
+    const startData = await startRes.json()
+    const runId = startData?.data?.id
+    const datasetId = startData?.data?.defaultDatasetId
+
+    if (!runId) throw new Error('No run ID returned')
+
+    console.log(`[Apify] Run started: ${runId}`)
 
     // 2. Poll until finished
-    const deadline = Date.now() + timeoutMs
-    let status = runData.data.status
+    const maxPolls = 45
+    const pollInterval = 2000
 
-    while (status !== 'SUCCEEDED' && status !== 'FAILED' && status !== 'ABORTED') {
-        if (Date.now() > deadline) {
-            throw new Error(`Apify run ${runId} timed out after ${timeoutMs / 1000}s`)
+    for (let i = 0; i < maxPolls; i++) {
+        await new Promise(r => setTimeout(r, pollInterval))
+
+        const statusRes = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN}`)
+        const statusData = await statusRes.json()
+        const status = statusData?.data?.status
+
+        console.log(`[Apify] Poll ${i + 1}/${maxPolls} — Status: ${status}`)
+
+        if (status === 'SUCCEEDED') {
+            const resultsRes = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN}&clean=true`)
+            if (!resultsRes.ok) throw new Error(`Dataset fetch failed: ${resultsRes.status}`)
+            return await resultsRes.json() as T[]
         }
-        await new Promise((r) => setTimeout(r, 3000))
 
-        const pollRes = await fetch(
-            `${APIFY_BASE}/actor-runs/${runId}?token=${token}`
-        )
-        const pollData = await pollRes.json()
-        status = pollData.data.status
+        if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+            throw new Error(`Apify run ${status}: ${JSON.stringify(statusData?.data)}`)
+        }
     }
 
-    if (status !== 'SUCCEEDED') {
-        throw new Error(`Apify run ${runId} ended with status: ${status}`)
-    }
-
-    // 3. Fetch dataset items
-    const datasetId = runData.data.defaultDatasetId
-    const itemsRes = await fetch(
-        `${APIFY_BASE}/datasets/${datasetId}/items?token=${token}&format=json`
-    )
-
-    if (!itemsRes.ok) {
-        throw new Error(`Failed to fetch dataset: ${itemsRes.status}`)
-    }
-
-    return itemsRes.json() as Promise<T[]>
+    throw new Error('Apify polling timeout')
 }
 
-import { trackApiCost } from './cost-tracker'
-
+/**
+ * Reliable Google Maps Scraper
+ */
 export async function scrapeGoogleMaps(
-    query: string,
-    location: string,
+    category: string,
+    city: string,
     maxResults = 20,
     supabase?: any
 ): Promise<GoogleMapsLead[]> {
-    const MAX_RETRIES = 3
-    const dateStr = new Date().toISOString().split('T')[0]
-    const cacheKey = `${location.toLowerCase()}_${query.toLowerCase()}_${dateStr}`
-
-    // 1. Check Cache
-    if (supabase) {
-        try {
-            const { data: cacheRow } = await supabase
-                .from('research_cache')
-                .select('raw_data')
-                .eq('city', location.toLowerCase())
-                .eq('category', query.toLowerCase())
-                .gte('created_at', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .single()
-
-            if (cacheRow && cacheRow.raw_data) {
-                console.log(`[Apify] Cache hit for ${query} in ${location}. Skipping scrape.`)
-                return cacheRow.raw_data as GoogleMapsLead[]
+    // Debug Mode (Save Credits)
+    if (process.env.APIFY_DEBUG === 'true') {
+        console.log('[Apify] DEBUG MODE — returning mock data')
+        return [
+            {
+                name: `Test ${category} in ${city}`,
+                address: '123 Main St',
+                city: city,
+                rating: 4.3,
+                reviewCount: 45,
+                website: null,
+                phone: '+17135550100',
+                email: null,
+                category: category,
+                noWebsiteConfirmed: true
             }
-        } catch (e) {
-            console.warn(`[Apify] Cache check failed, proceeding to scrape.`)
-        }
+        ]
     }
 
-    // 2. Perform Discovery Passes
-    let finalLeads: GoogleMapsLead[] = []
+    const cityResolved = resolveCityName(city)
+    const searchString = `${category} in ${cityResolved}`
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            console.log(`[Apify] Pass 1 (General): "${query}" in "${location}" (attempt ${attempt}/${MAX_RETRIES})`)
-            const inputGeneral = {
-                searchStringsArray: [query],
-                locationQuery: location,
-                maxCrawledPlacesPerSearch: maxResults,
-                language: 'en',
-                deeperCityScrape: false,
-                skipClosedPlaces: true,
-            }
-            const rawGeneral = await runActorAndGetResults<Record<string, any>>('compass~crawler-google-places', inputGeneral)
-            await trackApiCost({ service: 'apify', action: 'google_maps_scrape_general', estimated_cost_usd: 0.05 })
+    try {
+        const items = await runActorAndGetResults<any>(ACTOR_ID, {
+            searchStringsArray: [searchString],
+            maxCrawledPlacesPerSearch: maxResults,
+            language: 'en',
+            maxImages: 0,
+            maxReviews: 0,
+            scrapeReviewerInfo: false,
+            scrapeTableReservationProvider: false,
+            skipClosedPlaces: false,
+        })
 
-            console.log(`[Apify] Pass 2 (No Website): "${query} complete" in "${location}"`)
-            const inputNoWeb = {
-                searchStringsArray: [`${query} no website`],
-                locationQuery: location,
-                maxCrawledPlacesPerSearch: Math.max(10, Math.floor(maxResults / 2)),
-                language: 'en',
-                deeperCityScrape: false,
-                skipClosedPlaces: true,
-            }
-            const rawNoWeb = await runActorAndGetResults<Record<string, any>>('compass~crawler-google-places', inputNoWeb)
-            await trackApiCost({ service: 'apify', action: 'google_maps_scrape_noweb', estimated_cost_usd: 0.03 })
+        await trackApiCost({ service: 'apify', action: 'google_maps_scrape', estimated_cost_usd: 0.05 })
 
-            // Process No Web leads
-            const noWebSet = new Set<string>()
-            const noWebLeads = rawNoWeb.map((item) => {
-                const name = item.title || item.name || 'Unknown'
-                noWebSet.add(name.toLowerCase())
-                return {
-                    name,
-                    address: item.address || item.street || null,
-                    phone: item.phone || item.phoneUnformatted || null,
-                    email: item.email || null,
-                    website: item.website || null,
-                    rating: item.totalScore ?? item.rating ?? null,
-                    reviewCount: item.reviewsCount ?? item.reviews ?? null,
-                    category: item.categoryName || item.category || null,
-                    city: location,
-                    noWebsiteConfirmed: true,
-                }
-            })
-
-            // Process General leads
-            const generalLeads = rawGeneral.map((item) => {
-                const name = item.title || item.name || 'Unknown'
-                const isNoWeb = noWebSet.has(name.toLowerCase()) || (!item.website)
-                return {
-                    name,
-                    address: item.address || item.street || null,
-                    phone: item.phone || item.phoneUnformatted || null,
-                    email: item.email || null,
-                    website: item.website || null,
-                    rating: item.totalScore ?? item.rating ?? null,
-                    reviewCount: item.reviewsCount ?? item.reviews ?? null,
-                    category: item.categoryName || item.category || null,
-                    city: location,
-                    noWebsiteConfirmed: isNoWeb,
-                }
-            })
-
-            // Merge deduplicate
-            const allLeads = [...noWebLeads, ...generalLeads]
-            const uniqueMap = new Map<string, GoogleMapsLead>()
-            allLeads.forEach(l => {
-                if (!uniqueMap.has(l.name.toLowerCase())) {
-                    uniqueMap.set(l.name.toLowerCase(), l)
-                }
-            })
-
-            finalLeads = Array.from(uniqueMap.values())
-
-            // 3. Save to Cache
-            if (supabase) {
-                try {
-                    await supabase.from('research_cache').upsert({
-                        cache_key: cacheKey,
-                        city: location.toLowerCase(),
-                        category: query.toLowerCase(),
-                        raw_data: finalLeads,
-                        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
-                    })
-                } catch (e) {
-                    console.warn(`[Apify] Failed to save to cache.`)
-                }
-            }
-            return finalLeads
-
-        } catch (err: any) {
-            console.error(`[Apify] Scrape attempt ${attempt} failed: ${err.message}`)
-            if (attempt === MAX_RETRIES) {
-                console.error(`[Apify] All ${MAX_RETRIES} attempts failed. Returning empty.`)
-                return []
-            }
-            await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt - 1)))
-        }
+        return items
+            .filter(item => !item.permanentlyClosed)
+            .map(item => ({
+                name: item.title || item.name || 'Unknown',
+                address: item.address || item.street || null,
+                phone: item.phone || item.phoneNumber || null,
+                email: item.email || null,
+                website: item.website || null,
+                rating: item.totalScore || item.rating || null,
+                reviewCount: item.reviewsCount || item.reviews || null,
+                category: item.categoryName || item.category || category,
+                city: city,
+                noWebsiteConfirmed: !item.website
+            }))
+    } catch (err: any) {
+        console.error(`[Apify] Scrape failed: ${err.message}`)
+        return []
     }
-    return []
 }
 
-// ─── Contact Info Enrichment ──────────────────────────────────────
+/**
+ * Contact Info Scraper
+ */
+export async function enrichContacts(urls: string[]): Promise<EnrichedContact[]> {
+    if (urls.length === 0) return []
+    try {
+        const results = await runActorAndGetResults<any>('vdrmota~contact-info-scraper', {
+            startUrls: urls.map(url => ({ url })),
+            maxRequestsPerStartUrl: 3,
+            maxDepth: 1,
+        })
 
-export async function enrichContacts(
-    urls: string[]
-): Promise<EnrichedContact[]> {
-    const MAX_RETRIES = 3
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            console.log(`[Apify] Enriching ${urls.length} URLs (attempt ${attempt}/${MAX_RETRIES})`)
-
-            const input = {
-                startUrls: urls.map((url) => ({ url })),
-                maxRequestsPerStartUrl: 3,
-                maxDepth: 1,
-            }
-
-            const raw = await runActorAndGetResults<Record<string, any>>(
-                'vdrmota~contact-info-scraper',
-                input
-            )
-
-            return raw.map((item) => ({
-                url: item.url || '',
-                emails: item.emails || [],
-                phones: item.phones || item.phoneNumbers || [],
-                socials: [
-                    item.facebook,
-                    item.twitter,
-                    item.instagram,
-                    item.linkedin,
-                ].filter(Boolean) as string[],
-            }))
-        } catch (err: any) {
-            console.error(`[Apify] Enrich attempt ${attempt} failed: ${err.message}`)
-            if (attempt === MAX_RETRIES) return []
-            await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt - 1)))
-        }
+        return results.map(item => ({
+            url: item.url || '',
+            emails: item.emails || [],
+            phones: item.phones || item.phoneNumbers || [],
+            socials: [item.facebook, item.twitter, item.instagram, item.linkedin].filter(Boolean) as string[],
+        }))
+    } catch (err: any) {
+        console.error(`[Apify] Enrichment failed: ${err.message}`)
+        return []
     }
-    return []
+}
+
+/**
+ * Active Website Verification via Google Search
+ */
+export async function verifyLeadWebsite(businessName: string, city: string): Promise<string | null> {
+    try {
+        const results = await runActorAndGetResults<any>('apify/google-search-scraper', {
+            queries: [`${businessName} official website ${city}`],
+            maxPagesPerQuery: 1,
+            resultsPerPage: 3,
+            mobileResults: false,
+            includeUnfilteredResults: false,
+            saveHtml: false,
+            saveHtmlToKeyValueStore: false,
+        })
+
+        if (results.length > 0 && results[0].organicResults) {
+            const organic = results[0].organicResults as any[]
+            const excludes = ['yelp.com', 'tripadvisor.com', 'facebook.com', 'instagram.com', 'yellowpages.com', 'grubhub.com', 'ubereats.com', 'door-dash.com']
+            for (const res of organic) {
+                const url = res.url.toLowerCase()
+                if (!excludes.some(domain => url.includes(domain))) {
+                    return res.url
+                }
+            }
+        }
+        return null
+    } catch (err: any) {
+        console.error(`[Apify] Verification failed: ${err.message}`)
+        return null
+    }
 }

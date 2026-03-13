@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server'
+import { parseTaskInput } from '@/lib/task-parser'
+
+export const maxDuration = 300 // 5 minutes for Apify scrapers
 
 
 // ─── Intent Matching (inline — no external imports needed) ───────────
@@ -108,23 +111,21 @@ export async function POST(request: Request) {
 
             let payload: any = null
             if (workflow.name.includes('Lead Generation Pipeline')) {
-                const region = workflow.context?.region || 'Chicago'
-                logs.push(`[System] Executing live scrape for businesses in ${region}...`)
+                const parsed = parseTaskInput(description)
+                const { categories, city: region } = parsed
+
+                logs.push(`[TaskParser] Input: "${description}"`)
+                logs.push(`[TaskParser] City: "${region}"`)
+                logs.push(`[TaskParser] Categories: ${JSON.stringify(categories)}`)
 
                 try {
-                    const industryKeywords = (workflow.context?.industry || '').toLowerCase()
-                    let searchQuery = 'restaurant'
-                    if (industryKeywords.includes('agency')) searchQuery = 'marketing agency'
-                    if (industryKeywords.includes('shop') || industryKeywords.includes('store')) searchQuery = 'shop'
-                    if (industryKeywords.includes('coffee') || industryKeywords.includes('cafe')) searchQuery = 'cafe'
-
                     // ─── Run Full Autonomous Outreach Pipeline ─────────
                     const { runOutreachPipeline } = await import('@/lib/outreach-engine')
                     const { supabaseAdmin } = await import('@/lib/supabase-admin')
 
-                    logs.push(`[System] Running autonomous outreach pipeline...`)
+                    logs.push(`[System] Running autonomous outreach pipeline for ${categories.length} categories in ${region}...`)
                     const outreachResult = await runOutreachPipeline(
-                        searchQuery, region, supabaseAdmin, { maxResults: 20 }
+                        categories, region, supabaseAdmin, { maxResults: 20 }
                     )
 
                     // Merge outreach logs into the main logs
