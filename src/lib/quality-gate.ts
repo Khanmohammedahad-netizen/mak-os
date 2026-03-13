@@ -38,6 +38,13 @@ const SPAM_TRIGGERS = [
     'winner', 'prize', '!!!', '$$$'
 ]
 
+const SUBJECT_SPAM_TRIGGERS = [
+    'free', 'guaranteed', 'no obligation', 'act now',
+    'limited time', 'click here', '!!!', '$$$',
+    'you have been selected', 'congratulations',
+    'make money', 'earn money', 'risk free'
+]
+
 const FORBIDDEN_PHRASES = [
     'i came across', 'i stumbled upon', 'just reaching out',
     'hope this finds you well', 'quick question', 'touching base'
@@ -104,15 +111,21 @@ function scoreLength(words: number, tone: EmailTone): number {
     return 4
 }
 
-function scoreSubject(subject: string): number {
+function scoreSubject(subject: string, businessName: string, city: string): number {
     const words = subject.trim().split(/\s+/).length
     const lower = subject.toLowerCase()
     let score = 10
 
-    if (words < 5 || words > 9) score -= 3
+    if (words < 4 || words > 9) score -= 4
     if (lower.includes('website')) score -= 5
-    if (SPAM_TRIGGERS.some(t => lower.includes(t)) || lower.includes('free') || lower.includes('urgent')) score -= 6
+    if (SUBJECT_SPAM_TRIGGERS.some(t => lower.includes(t)) || lower.includes('urgent')) score -= 8
     if (subject !== subject.toLowerCase() && subject === subject.toUpperCase()) score -= 5
+    if (subject.includes('!')) score -= 4
+
+    // mustBeSpecific: must contain business name or city
+    const hasBusiness = lower.includes(businessName.toLowerCase())
+    const hasCity = lower.includes(city.toLowerCase())
+    if (!hasBusiness && !hasCity) score -= 5
 
     return Math.max(1, score)
 }
@@ -130,7 +143,7 @@ export function evaluateVariants(
         const spam = scoreSpam(v.body, v.subject)
         const read = scoreReadability(v.body)
         const len = scoreLength(v.word_count, v.tone)
-        const sub = scoreSubject(v.subject)
+        const sub = scoreSubject(v.subject, businessName, city)
 
         const avg = Number(((spec + spam + read + len + sub) / 5).toFixed(1))
 

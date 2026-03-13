@@ -11,7 +11,10 @@
  */
 
 import { scrapeGoogleMaps, enrichContacts, verifyLeadWebsite, type GoogleMapsLead } from './apify'
-import { sendEmail, buildOutreachVariants } from './zoho-mail'
+import { buildOutreachVariants } from './zoho-mail'
+import { sendViaBrevo } from './email/brevo-sender'
+import { getDailyLimit, getDelayBetweenEmails } from './email/warmup-schedule'
+import { isSuppressed } from './email/bounce-handler'
 import { evaluateVariants } from './quality-gate'
 import { checkDailyBudgetCap } from './cost-tracker'
 
@@ -385,11 +388,20 @@ export async function runOutreachPipeline(
         // ─── Stage 4: ContactEnrichmentAgent ──────────────
         logs.push(`[Stage 4] ContactEnrichmentAgent: Enriching contacts...`)
 
-        // Get rate limit status
+        // Get rate limit status based on Warm-up schedule
+        const startDate = new Date(process.env.EMAIL_ACCOUNT_START_DATE || '2026-03-01')
+        const ageDays = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+
+        // Let Render override if specified, otherwise fall back to industry schedule
+        let DAILY_LIMIT = parseInt(process.env.DAILY_EMAIL_LIMIT || '0', 10)
+        if (DAILY_LIMIT === 0) {
+            DAILY_LIMIT = getDailyLimit(ageDays)
+        }
+        const delayMinutes = getDelayBetweenEmails(ageDays)
+
         const dailySent = await getDailySentCount(supabase)
-        const DAILY_LIMIT = 30
         const remaining = Math.max(0, DAILY_LIMIT - dailySent)
-        logs.push(`[Stage 4] Daily email budget: ${remaining}/${DAILY_LIMIT} remaining`)
+        logs.push(`[Stage 4] Daily email budget: ${remaining}/${DAILY_LIMIT} remaining (Age: ${ageDays} days)`)
 
         // Only enrich leads we can actually contact today
         const leadsToProcess = websiteQualified.slice(0, remaining || websiteQualified.length)
@@ -405,7 +417,19 @@ export async function runOutreachPipeline(
         }
 
         // ─── Stages 5-7: Generate, Send, Log ─────────────
-        for (const lead of leadsToProcess) {
+        // ─── Stages 5-7: Generate, Send, Log ─────────────
+        for (let i = 0; i < leadsToProcess.length; i++) {
+            const lead = leadsToProcess[i]
+
+            // Skip suppressed emails
+            if (lead.email) {
+                const suppressed = await isSuppressed(supabase, lead.email)
+                if (suppressed) {
+                    logs.push(`[Stage 4] Skipping suppressed email: ${lead.email}`)
+                    continue
+                }
+            }
+
             // ─── Duplicate Detection ─────────────────────
             const { data: existing } = await supabase
                 .from('leads')
@@ -452,10 +476,10 @@ export async function runOutreachPipeline(
             const leadId = inserted.id
 
             if (lead.email && !dryRun) {
-                // Check rate limit
+                // Check rate limit dynamically
                 const currentCount = await getDailySentCount(supabase)
                 if (currentCount >= DAILY_LIMIT) {
-                    logs.push(`[Stage 6] Limit reached (${DAILY_LIMIT}). Queued email for ${lead.name}.`)
+                    logs.push(`[Stage 6] Warm-up Limit reached (${DAILY_LIMIT}). Queued email for ${lead.name}.`)
                     result.queued = (result.queued || 0) + 1
                     continue
                 }
@@ -485,15 +509,20 @@ export async function runOutreachPipeline(
 
                 logs.push(`[Stage 5] MarketingAgent: Generated outreach for ${lead.name} (${gate.selected_variant} passed gate)`)
 
-                // ─── Stage 7: AutomationAgent — Send email
+                // ─── Stage 7: AutomationAgent — Send email via Brevo
                 try {
                     const htmlBody = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;line-height:1.6;"><p>${gate.selected_body!.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p></div>`
-                    const mailResult = await sendEmail({
-                        to: lead.email,
-                        subject: gate.selected_subject!,
-                        html: htmlBody,
-                        text: gate.selected_body!
-                    })
+                    const mailResult = await sendViaBrevo(
+                        lead.email,
+                        gate.selected_subject!,
+                        gate.selected_body!,
+                        htmlBody,
+                        'Mohammed Ahad' // From name config
+                    )
+
+                    if (!mailResult.success) {
+                        throw new Error(mailResult.error || 'Failed sending via Brevo')
+                    }
 
                     logs.push(`[Stage 7] AutomationAgent: Email sent to ${lead.name} (${lead.email})`)
                     result.emailsSent++
@@ -531,6 +560,12 @@ export async function runOutreachPipeline(
                         })
                     } catch (e) {
                         console.error('[OutreachEngine] Error logging outreach_log:', e)
+                    }
+
+                    // Protect Domain Reputation: Wait before sending the next email
+                    if (i < leadsToProcess.length - 1) {
+                        logs.push(`[Stage 7] Waiting ${delayMinutes} min before the next email to protect reputation...`)
+                        await new Promise(resolve => setTimeout(resolve, delayMinutes * 60 * 1000))
                     }
 
                 } catch (sendErr: any) {
