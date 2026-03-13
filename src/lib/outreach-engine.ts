@@ -27,7 +27,7 @@ export interface OutreachResult {
     logs: string[]
 }
 
-export type AuditCategory = 'A - No Website' | 'B - Outdated' | 'C - Facebook Only' | 'D - Good Website'
+export type AuditCategory = 'A - Needs Website' | 'B - Outdated' | 'C - Facebook Only' | 'D - Good Website'
 
 export type PriorityLane = 'hot' | 'warm' | 'cold' | 'rejected'
 
