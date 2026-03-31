@@ -130,11 +130,14 @@ export async function scrapeGoogleMaps(
     category: string,
     city: string,
     maxResults = 15,
-    supabase?: any
+    supabase?: any,
+    logs?: string[]
 ): Promise<GoogleMapsLead[]> {
-    const TOKEN_VAR = process.env.APIFY_API_TOKEN
+    const TOKEN_VAR = process.env.APIFY_API_TOKEN || process.env.APIFY_TOKEN
     if (!TOKEN_VAR) {
-        console.error('[Apify] ERROR: APIFY_API_TOKEN env var is missing')
+        const err = '[Apify] ERROR: Neither APIFY_API_TOKEN nor APIFY_TOKEN env var is set'
+        console.error(err)
+        if (logs) logs.push(err)
         return []
     }
 
@@ -168,16 +171,25 @@ export async function scrapeGoogleMaps(
                 .eq('cache_key', cacheKey)
                 .single()
 
-            if (cached?.raw_data) {
-                console.log(`[Cache] HIT for ${category} in ${city} — no Apify call needed`)
+            if (cached?.raw_data && Array.isArray(cached.raw_data) && cached.raw_data.length > 0) {
+                const msg = `[Cache] HIT for ${category} in ${city} — ${cached.raw_data.length} businesses found in database`
+                console.log(msg)
+                if (logs) logs.push(msg)
                 return cached.raw_data as GoogleMapsLead[]
+            } else if (cached?.raw_data && Array.isArray(cached.raw_data) && cached.raw_data.length === 0) {
+                const msg = `[Cache] Found empty result set for ${category} in ${city} — bypassing cache to force fresh scrape`
+                console.log(msg)
+                if (logs) logs.push(msg)
+                // Do not return, proceed to scrape
             }
         } catch (e) {
             // cache miss or table missing, proceed
         }
     }
 
-    console.log(`[Cache] MISS for ${category} in ${city} — Launching scrape for: "${searchString}"`)
+    const missMsg = `[Cache] MISS for ${category} in ${city} — Launching scrape for: "${searchString}"`
+    console.log(missMsg)
+    if (logs) logs.push(missMsg)
 
     // ── STEP 1: Start the actor run ──
     const startRes = await fetch(
@@ -198,8 +210,9 @@ export async function scrapeGoogleMaps(
 
     if (!startRes.ok) {
         const errText = await startRes.text()
-        console.error(`[Apify] Failed to start run. Status: ${startRes.status}`)
-        console.error(`[Apify] Error: ${errText}`)
+        const err = `[Apify] Failed to start run. Status: ${startRes.status} — ${errText}`
+        console.error(err)
+        if (logs) logs.push(err)
         return []
     }
 
@@ -208,11 +221,15 @@ export async function scrapeGoogleMaps(
     const datasetId = startData?.data?.defaultDatasetId
 
     if (!runId) {
-        console.error('[Apify] No runId returned:', JSON.stringify(startData))
+        const err = `[Apify] No runId returned: ${JSON.stringify(startData)}`
+        console.error(err)
+        if (logs) logs.push(err)
         return []
     }
 
-    console.log(`[Apify] Run started — ID: ${runId}`)
+    const startMsg = `[Apify] Run started — ID: ${runId}`
+    console.log(startMsg)
+    if (logs) logs.push(startMsg)
 
     // ── STEP 2: Poll until the run finishes ──
     // Poll every 3 seconds for up to 3 minutes (60 attempts)
@@ -225,7 +242,9 @@ export async function scrapeGoogleMaps(
         const pollData = await pollRes.json()
         const status = pollData?.data?.status
 
-        console.log(`[Apify] Poll ${attempt}/60 — Status: ${status}`)
+        const pollMsg = `[Apify] Poll ${attempt}/60 — Status: ${status}`
+        console.log(pollMsg)
+        if (logs) logs.push(pollMsg)
 
         if (status === 'SUCCEEDED') {
             // ── STEP 3: Fetch the results from the dataset ──
@@ -239,11 +258,14 @@ export async function scrapeGoogleMaps(
             }
 
             const items = await dataRes.json()
-            console.log(`[Apify] SUCCESS — ${items.length} businesses found`)
+            const successMsg = `[Apify] SUCCESS — ${items.length} businesses found`
+            console.log(successMsg)
+            if (logs) logs.push(successMsg)
 
             if (items.length === 0) {
-                console.warn(`[Apify] Run succeeded but returned 0 items for "${searchString}"`)
-                console.warn('[Apify] This may mean no results exist or the search query needs adjustment')
+                const warnMsg = `[Apify] Run succeeded but returned 0 items for "${searchString}". This may mean no results exist or the search query needs adjustment.`
+                console.warn(warnMsg)
+                if (logs) logs.push(`[Apify] Warning: ${warnMsg}`)
             }
 
             await trackApiCost({ service: 'apify', action: 'google_maps_scrape', estimated_cost_usd: 0.05 })
@@ -283,15 +305,18 @@ export async function scrapeGoogleMaps(
         }
 
         if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
-            console.error(`[Apify] Run ended with status: ${status}`)
-            console.error('[Apify] Run details:', JSON.stringify(pollData?.data))
+            const err = `[Apify] Run ended with status: ${status} — Details: ${JSON.stringify(pollData?.data)}`
+            console.error(err)
+            if (logs) logs.push(err)
             return []
         }
 
         // Still RUNNING or READY — keep polling
     }
 
-    console.error('[Apify] Polling timed out after 3 minutes')
+    const timeoutErr = '[Apify] Polling timed out after 3 minutes'
+    console.error(timeoutErr)
+    if (logs) logs.push(timeoutErr)
     return []
 }
 
