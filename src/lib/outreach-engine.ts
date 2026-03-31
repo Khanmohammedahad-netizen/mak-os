@@ -6,7 +6,7 @@
  * Stage 3: WebsiteAuditAgent  → Check website existence
  * Stage 4: ContactEnrichment  → Find emails via Apify contact scraper
  * Stage 5: MarketingAgent     → Generate personalized outreach message
- * Stage 6: AutomationAgent    → Send email via Zoho SMTP (or flag for phone)
+ * Stage 6: AutomationAgent    → Send email via Brevo API (or flag for phone)
  * Stage 7: CRM Update         → Update Supabase lead status + log activity
  */
 

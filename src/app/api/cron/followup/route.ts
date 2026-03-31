@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { sendEmail } from '@/lib/zoho-mail'
+import { sendWithRetry } from '@/lib/email/brevo'
 
 import { verifyCronSecret, cronUnauthorized } from '@/lib/cron-auth'
+
+/* Stage 6: AutomationAgent    → Send email via Brevo API (or flag for phone) */
 
 export const maxDuration = 300 // Max 5 mins for Vercel Cron
 
@@ -54,14 +56,16 @@ export async function GET(request: Request) {
                 logs.push(`[FollowUpAgent] Sending Touch ${nextTouch} to ${log.email_address} (${log.business_name}) | Waited ${daysSince} days`)
 
                 try {
-                    const htmlBody = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;line-height:1.6;"><p>${body.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>')}</p></div>`
-
-                    const mailResult = await sendEmail({
+                    const mailResult = await sendWithRetry({
                         to: log.email_address,
                         subject: subject,
-                        html: htmlBody,
-                        text: body
+                        body: body,
+                        replyTo: process.env.OUTREACH_FROM_EMAIL
                     })
+
+                    if (!mailResult.success) {
+                        throw new Error(mailResult.error || 'Failed sending via Brevo')
+                    }
 
                     // Mark previous touch as completed
                     await supabase.from('outreach_log')

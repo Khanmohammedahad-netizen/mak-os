@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { sendEmail, buildOutreachVariants } from '@/lib/zoho-mail'
+import { sendWithRetry } from '@/lib/email/brevo'
+import { buildOutreachVariants } from '@/lib/zoho-mail'
 
 /**
  * POST /api/leads/email
@@ -57,15 +58,18 @@ export async function POST(request: Request) {
             category: lead.category || null,
         })
         const { subject, body: text } = variants[0]
-        const html = text.replace(/\n/g, '<br/>')
 
-        // 5. Send via Zoho Mail
-        const mailResult = await sendEmail({
+        // 5. Send via Brevo
+        const mailResult = await sendWithRetry({
             to: lead.email,
             subject,
-            html,
-            text,
+            body: text,
+            replyTo: process.env.OUTREACH_FROM_EMAIL
         })
+
+        if (!mailResult.success) {
+            return NextResponse.json({ error: mailResult.error || 'Failed sending via Brevo' }, { status: 500 })
+        }
 
         // 6. Update lead status
         const { error: updateErr } = await supabase

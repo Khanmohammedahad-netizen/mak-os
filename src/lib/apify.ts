@@ -72,6 +72,7 @@ async function runActorAndGetResults<T>(
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store', // Bypass Next.js default caching on Vercel
             body: JSON.stringify(input),
         }
     )
@@ -97,14 +98,14 @@ async function runActorAndGetResults<T>(
     for (let i = 0; i < maxPolls; i++) {
         await new Promise(r => setTimeout(r, pollInterval))
 
-        const statusRes = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN}`)
+        const statusRes = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN}`, { cache: 'no-store' })
         const statusData = await statusRes.json()
         const status = statusData?.data?.status
 
         console.log(`[Apify] Poll ${i + 1}/${maxPolls} — Status: ${status}`)
 
         if (status === 'SUCCEEDED') {
-            const resultsRes = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN}&clean=true`)
+            const resultsRes = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN}&clean=true`, { cache: 'no-store' })
             if (!resultsRes.ok) throw new Error(`Dataset fetch failed: ${resultsRes.status}`)
             return await resultsRes.json() as T[]
         }
@@ -197,6 +198,7 @@ export async function scrapeGoogleMaps(
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store', // Bypass Next.js default caching on Vercel
             body: JSON.stringify({
                 searchStringsArray: [searchString],
                 maxCrawledPlacesPerSearch: 15, // Hard limit to 15
@@ -237,7 +239,8 @@ export async function scrapeGoogleMaps(
         await new Promise(resolve => setTimeout(resolve, 3000))
 
         const pollRes = await fetch(
-            `${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN_VAR}`
+            `${APIFY_BASE}/actor-runs/${runId}?token=${TOKEN_VAR}`,
+            { cache: 'no-store' }
         )
         const pollData = await pollRes.json()
         const status = pollData?.data?.status
@@ -249,7 +252,8 @@ export async function scrapeGoogleMaps(
         if (status === 'SUCCEEDED') {
             // ── STEP 3: Fetch the results from the dataset ──
             const dataRes = await fetch(
-                `${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN_VAR}&limit=${maxResults}&clean=true`
+                `${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN_VAR}&limit=${maxResults}&clean=true`,
+                { cache: 'no-store' }
             )
 
             if (!dataRes.ok) {
