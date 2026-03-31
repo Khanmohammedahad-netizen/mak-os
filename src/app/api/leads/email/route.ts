@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { sendWithRetry } from '@/lib/email/brevo'
+import { sendOutreachEmail } from '@/lib/email/service'
 import { buildOutreachVariants } from '@/lib/zoho-mail'
 
 /**
@@ -59,16 +59,16 @@ export async function POST(request: Request) {
         })
         const { subject, body: text } = variants[0]
 
-        // 5. Send via Brevo
-        const mailResult = await sendWithRetry({
+        // 5. Send via Unified Service
+        const mailResult = await sendOutreachEmail({
             to: lead.email,
             subject,
             body: text,
-            replyTo: process.env.OUTREACH_FROM_EMAIL
+            fromEmail: process.env.OUTREACH_FROM_EMAIL
         })
 
         if (!mailResult.success) {
-            return NextResponse.json({ error: mailResult.error || 'Failed sending via Brevo' }, { status: 500 })
+            return NextResponse.json({ error: mailResult.error || 'Failed sending via unified service' }, { status: 500 })
         }
 
         // 6. Update lead status

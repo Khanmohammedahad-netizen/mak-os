@@ -12,7 +12,7 @@
 
 import { scrapeGoogleMaps, enrichContacts, verifyLeadWebsite, type GoogleMapsLead } from './apify'
 import { buildOutreachVariants } from './zoho-mail'
-import { sendWithRetry } from './email/brevo'
+import { sendOutreachEmail } from './email/service'
 import { getDailyLimit, getDelayBetweenEmails } from './email/warmup-schedule'
 import { isSuppressed } from './email/bounce-handler'
 import { evaluateVariants } from './quality-gate'
@@ -509,20 +509,20 @@ export async function runOutreachPipeline(
 
                 logs.push(`[Stage 5] MarketingAgent: Generated outreach for ${lead.name} (${gate.selected_variant} passed gate)`)
 
-                // ─── Stage 7: AutomationAgent — Send email via Brevo
+                // --- Stage 7: AutomationAgent — Send email via Unified Service
                 try {
-                    const resultMail = await sendWithRetry({
+                    const resultMail = await sendOutreachEmail({
                         to: lead.email,
                         subject: gate.selected_subject!,
                         body: gate.selected_body!,
-                        replyTo: process.env.OUTREACH_FROM_EMAIL
+                        fromEmail: process.env.OUTREACH_FROM_EMAIL
                     })
 
                     if (!resultMail.success) {
-                        throw new Error(resultMail.error || 'Failed sending via Brevo after retries')
+                        throw new Error(resultMail.error || 'Failed sending via Unified Service')
                     }
 
-                    logs.push(`[Automation] Email sent to ${lead.name}`)
+                    logs.push(`[Automation] Email sent to ${lead.name} via ${resultMail.provider.toUpperCase()}`)
                     result.emailsSent++
 
                     // ─── Stage 8: CRM Update

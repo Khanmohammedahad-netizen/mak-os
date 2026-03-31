@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { sendWithRetry } from '@/lib/email/brevo'
+import { sendOutreachEmail } from '@/lib/email/service'
+import { buildOutreachVariants } from '@/lib/zoho-mail'
 
 import { verifyCronSecret, cronUnauthorized } from '@/lib/cron-auth'
 
@@ -56,15 +57,15 @@ export async function GET(request: Request) {
                 logs.push(`[FollowUpAgent] Sending Touch ${nextTouch} to ${log.email_address} (${log.business_name}) | Waited ${daysSince} days`)
 
                 try {
-                    const mailResult = await sendWithRetry({
+                    const mailResult = await sendOutreachEmail({
                         to: log.email_address,
                         subject: subject,
                         body: body,
-                        replyTo: process.env.OUTREACH_FROM_EMAIL
+                        fromEmail: process.env.OUTREACH_FROM_EMAIL
                     })
 
                     if (!mailResult.success) {
-                        throw new Error(mailResult.error || 'Failed sending via Brevo')
+                        throw new Error(mailResult.error || 'Failed sending via unified service')
                     }
 
                     // Mark previous touch as completed
