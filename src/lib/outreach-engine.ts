@@ -341,8 +341,8 @@ export async function runOutreachPipeline(
         // Sort by priority (highest first)
         qualified.sort((a, b) => b.priorityScore - a.priorityScore)
 
-        // Cost-Optimization: Keep strict top 5 to prevent massive enrichment waste
-        const MAX_TO_ENRICH = categories.length * 5;
+        // Process up to 50 qualified leads per category
+        const MAX_TO_ENRICH = categories.length * 50;
         const topQualified = qualified.slice(0, MAX_TO_ENRICH);
 
         result.qualified = topQualified.length

@@ -33,29 +33,90 @@ export interface EnrichedContact {
     socials: string[]
 }
 
-const CITY_MAP: Record<string, string> = {
-    'chicago': 'Chicago, IL, USA',
-    'houston': 'Houston, TX, USA',
-    'dallas': 'Dallas, TX, USA',
-    'miami': 'Miami, FL, USA',
-    'new york': 'New York, NY, USA',
-    'nyc': 'New York, NY, USA',
-    'los angeles': 'Los Angeles, CA, USA',
-    'la': 'Los Angeles, CA, USA',
-    'phoenix': 'Phoenix, AZ, USA',
-    'denver': 'Denver, CO, USA',
-    'seattle': 'Seattle, WA, USA',
-    'atlanta': 'Atlanta, GA, USA',
-    'boston': 'Boston, MA, USA',
-    'dubai': 'Dubai, United Arab Emirates',
-    'sydney': 'Sydney, New South Wales, Australia',
-    'melbourne': 'Melbourne, Victoria, Australia',
-    'brisbane': 'Brisbane, Queensland, Australia',
-    'perth': 'Perth, Western Australia, Australia',
-    'adelaide': 'Adelaide, South Australia, Australia',
-    'mumbai': 'Mumbai, India',
-    'london': 'London, United Kingdom',
-    'toronto': 'Toronto, Canada',
+// Smart country resolver — maps known cities to their correct country
+const CITY_COUNTRY_MAP: Record<string, string> = {
+    // USA
+    'chicago': 'USA',
+    'houston': 'USA',
+    'dallas': 'USA',
+    'miami': 'USA',
+    'new york': 'USA',
+    'nyc': 'USA',
+    'los angeles': 'USA',
+    'la': 'USA',
+    'phoenix': 'USA',
+    'denver': 'USA',
+    'seattle': 'USA',
+    'atlanta': 'USA',
+    'boston': 'USA',
+    'san francisco': 'USA',
+    'san diego': 'USA',
+    'austin': 'USA',
+    'portland': 'USA',
+    'nashville': 'USA',
+    'charlotte': 'USA',
+    'minneapolis': 'USA',
+    // Australia
+    'sydney': 'Australia',
+    'melbourne': 'Australia',
+    'brisbane': 'Australia',
+    'perth': 'Australia',
+    'adelaide': 'Australia',
+    'gold coast': 'Australia',
+    // United Kingdom
+    'london': 'United Kingdom',
+    'manchester': 'United Kingdom',
+    'birmingham': 'United Kingdom',
+    'leeds': 'United Kingdom',
+    'edinburgh': 'United Kingdom',
+    'glasgow': 'United Kingdom',
+    'bristol': 'United Kingdom',
+    'liverpool': 'United Kingdom',
+    // UAE
+    'dubai': 'UAE',
+    'abu dhabi': 'UAE',
+    'sharjah': 'UAE',
+    // India
+    'mumbai': 'India',
+    'delhi': 'India',
+    'new delhi': 'India',
+    'bangalore': 'India',
+    'bengaluru': 'India',
+    'hyderabad': 'India',
+    'chennai': 'India',
+    'pune': 'India',
+    'kolkata': 'India',
+    'ahmedabad': 'India',
+    // Canada
+    'toronto': 'Canada',
+    'vancouver': 'Canada',
+    'montreal': 'Canada',
+    'calgary': 'Canada',
+    'ottawa': 'Canada',
+    // Japan
+    'tokyo': 'Japan',
+    'osaka': 'Japan',
+    'kyoto': 'Japan',
+    // Europe
+    'paris': 'France',
+    'berlin': 'Germany',
+    'munich': 'Germany',
+    'amsterdam': 'Netherlands',
+    'madrid': 'Spain',
+    'barcelona': 'Spain',
+    'rome': 'Italy',
+    'milan': 'Italy',
+    'lisbon': 'Portugal',
+    'zurich': 'Switzerland',
+    // Southeast Asia
+    'singapore': 'Singapore',
+    'bangkok': 'Thailand',
+    'kuala lumpur': 'Malaysia',
+    'jakarta': 'Indonesia',
+}
+
+function resolveCountry(city: string): string {
+    return CITY_COUNTRY_MAP[city.toLowerCase()] || ''
 }
 
 /**
@@ -135,7 +196,7 @@ function getWeekKey(): string {
 export async function scrapeGoogleMaps(
     category: string,
     city: string,
-    maxResults = 15,
+    maxResults = 100,
     supabase?: any,
     logs?: string[]
 ): Promise<GoogleMapsLead[]> {
@@ -164,8 +225,10 @@ export async function scrapeGoogleMaps(
         }))
     }
 
-    const resolvedCity = CITY_MAP[city.toLowerCase()] || `${city}, USA`
-    const searchString = `${category} in ${resolvedCity}`
+    const country = resolveCountry(city)
+    const searchString = country
+        ? `${category} in ${city}, ${country}`
+        : `${category} in ${city}`
     const cacheKey = `${city.toLowerCase()}_${category.toLowerCase()}_${getWeekKey()}`
 
     // ── STEP 0: Check cache first ──
@@ -206,7 +269,7 @@ export async function scrapeGoogleMaps(
             cache: 'no-store', // Bypass Next.js default caching on Vercel
             body: JSON.stringify({
                 searchStringsArray: [searchString],
-                maxCrawledPlacesPerSearch: 15, // Hard limit to 15
+                maxCrawledPlacesPerSearch: 100, // Scrape up to 100 businesses
                 language: 'en',
                 maxImages: 0,
                 maxReviews: 0,

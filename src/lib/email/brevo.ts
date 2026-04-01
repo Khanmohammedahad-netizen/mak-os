@@ -1,5 +1,8 @@
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
+// Startup diagnostic — confirms key is loaded on Render boot
+console.log('[EmailAgent] BREVO_API_KEY loaded:', process.env.BREVO_API_KEY ? 'YES ✓' : 'MISSING ✗')
+
 interface BrevoEmailOptions {
     to: string
     subject: string
