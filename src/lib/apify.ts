@@ -320,7 +320,7 @@ export async function scrapeGoogleMaps(
         if (status === 'SUCCEEDED') {
             // ── STEP 3: Fetch the results from the dataset ──
             const dataRes = await fetch(
-                `${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN_VAR}&limit=${maxResults}&clean=true`,
+                `${APIFY_BASE}/datasets/${datasetId}/items?token=${TOKEN_VAR}&clean=true`,
                 { cache: 'no-store' }
             )
 

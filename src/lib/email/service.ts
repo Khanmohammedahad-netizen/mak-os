@@ -1,5 +1,4 @@
-import { sendWithRetry as sendByBrevo } from './brevo'
-import { sendEmail as sendByZoho } from '../zoho-mail'
+import { sendViaBrevo } from './brevo'
 
 export interface OutreachEmailOptions {
     to: string
@@ -11,49 +10,36 @@ export interface OutreachEmailOptions {
 }
 
 /**
- * Unified Email Service - Primary: Brevo, Fallback: Zoho
- * This ensures the system remains functional even if credentials for one provider are missing.
+ * Email Service — Brevo only (Zoho removed: flagged for unusual activity)
+ * If Brevo fails, the error is logged and the lead is marked email_failed in CRM.
  */
-export async function sendOutreachEmail(options: OutreachEmailOptions): Promise<{ 
-    success: boolean; 
-    messageId?: string; 
-    error?: string; 
-    provider: 'brevo' | 'zoho' 
+export async function sendOutreachEmail(options: OutreachEmailOptions): Promise<{
+    success: boolean
+    messageId?: string
+    error?: string
+    provider: 'brevo'
 }> {
-    const brevoKey = process.env.BREVO_API_KEY
-
-    // 1. Attempt Brevo if key exists
-    if (brevoKey) {
-        console.log(`[EmailService] Attempting send via Brevo (Primary)...`)
-        const result = await sendByBrevo(options)
-        if (result.success) {
-            return { ...result, provider: 'brevo' }
-        }
-        console.warn(`[EmailService] Brevo failed: ${result.error}. Falling back to Zoho...`)
-    } else {
-        console.warn(`[EmailService] BREVO_API_KEY missing. Falling back to Zoho...`)
+    const fromEmail = options.fromEmail || process.env.OUTREACH_FROM_EMAIL
+    if (!fromEmail) {
+        const err = '[EmailService] OUTREACH_FROM_EMAIL is not set — cannot send. Set it in Render environment variables.'
+        console.error(err)
+        return { success: false, error: err, provider: 'brevo' }
     }
 
-    // 2. Fallback to Zoho
+    console.log(`[EmailService] Sending via Brevo to: ${options.to}`)
+    console.log(`[EmailService] From: ${fromEmail}`)
+
     try {
-        console.log(`[EmailService] Attempting send via Zoho (Fallback)...`)
-        const zohoResult = await sendByZoho({
-            to: options.to,
-            subject: options.subject,
-            html: options.body.replace(/\n/g, '<br/>'),
-            text: options.body
-        })
-        return { 
-            success: true, 
-            messageId: zohoResult.messageId, 
-            provider: 'zoho' 
+        const result = await sendViaBrevo({ ...options, fromEmail })
+        if (result.success) {
+            console.log(`[EmailService] Brevo delivered — MessageID: ${result.messageId}`)
+            return { ...result, provider: 'brevo' }
         }
-    } catch (zohoErr: any) {
-        console.error(`[EmailService] Zoho fallback also failed: ${zohoErr.message}`)
-        return { 
-            success: false, 
-            error: `Both providers failed. Zoho error: ${zohoErr.message}`,
-            provider: 'zoho'
-        }
+        // Brevo returned a non-success response (e.g. 400/401/403)
+        console.error(`[EmailService] Brevo send failed: ${result.error}`)
+        return { success: false, error: result.error, provider: 'brevo' }
+    } catch (err: any) {
+        console.error(`[EmailService] Brevo threw an exception: ${err.message}`)
+        return { success: false, error: err.message, provider: 'brevo' }
     }
 }

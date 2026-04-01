@@ -277,7 +277,7 @@ export async function runOutreachPipeline(
             for (const cat of categories) {
                 try {
                     // For multi-category, we fetch a smaller number per category but cap the total
-                    const catLeads = await scrapeGoogleMaps(cat, city, 15, supabase, logs)
+                    const catLeads = await scrapeGoogleMaps(cat, city, 100, supabase, logs)
                     rawLeads.push(...catLeads)
                     logs.push(`[Stage 1] ${cat} → ${catLeads.length} found`)
 

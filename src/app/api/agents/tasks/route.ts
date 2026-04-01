@@ -125,7 +125,7 @@ export async function POST(request: Request) {
 
                     logs.push(`[System] Running autonomous outreach pipeline for ${categories.length} categories in ${region}...`)
                     const outreachResult = await runOutreachPipeline(
-                        categories, region, supabaseAdmin, { maxResults: 20 }
+                        categories, region, supabaseAdmin, { maxResults: 100 }
                     )
 
                     // Merge outreach logs into the main logs
