@@ -392,11 +392,12 @@ export async function runOutreachPipeline(
         const startDate = new Date(process.env.EMAIL_ACCOUNT_START_DATE || '2026-03-01')
         const ageDays = Math.floor((Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24))
 
-        // Let Render override if specified, otherwise fall back to industry schedule
-        let DAILY_LIMIT = parseInt(process.env.DAILY_EMAIL_LIMIT || '0', 10)
-        if (DAILY_LIMIT === 0) {
+        // Let Render override if specified, otherwise default to 50
+        let DAILY_LIMIT = parseInt(process.env.DAILY_EMAIL_LIMIT || '50', 10)
+        if (process.env.DAILY_EMAIL_LIMIT === '0' || !process.env.DAILY_EMAIL_LIMIT) {
             DAILY_LIMIT = getDailyLimit(ageDays)
         }
+        console.log(`[EmailBudget] Daily limit: ${DAILY_LIMIT} emails (DAILY_EMAIL_LIMIT env: ${process.env.DAILY_EMAIL_LIMIT || 'not set, using warmup schedule'})`)
         const delayMinutes = getDelayBetweenEmails(ageDays)
 
         const dailySent = await getDailySentCount(supabase)
