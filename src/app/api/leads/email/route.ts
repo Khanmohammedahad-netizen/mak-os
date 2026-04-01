@@ -88,7 +88,7 @@ export async function POST(request: Request) {
             subject,
         })
     } catch (err: any) {
-        console.error('[Email] Error:', err)
-        return NextResponse.json({ error: err.message }, { status: 500 })
+        console.error('[Email Route] Unhandled error:', err?.message || err)
+        return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 })
     }
 }
