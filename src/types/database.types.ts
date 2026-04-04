@@ -158,34 +158,67 @@ export type Database = {
                 }
                 Relationships: []
             }
-            outreach_logs: {
+            outreach_log: {
                 Row: {
                     id: string
-                    created_at: string
                     lead_id: string
-                    message: string
-                    type: string
-                    owner_id: string
+                    business_name: string | null
+                    email_address: string | null
+                    touch_number: number | null
+                    subject: string | null
+                    body: string | null
+                    send_status: string | null
+                    sent_at: string | null
+                    failure_reason: string | null
+                    sequence_status: string | null
+                    variant_used: string | null
+                    gate_score: number | null
+                    channel: string | null
+                    message_sid: string | null
+                    wa_status: string | null
+                    created_at: string
                 }
                 Insert: {
                     id?: string
-                    created_at?: string
                     lead_id: string
-                    message: string
-                    type: string
-                    owner_id: string
+                    business_name?: string | null
+                    email_address?: string | null
+                    touch_number?: number | null
+                    subject?: string | null
+                    body?: string | null
+                    send_status?: string | null
+                    sent_at?: string | null
+                    failure_reason?: string | null
+                    sequence_status?: string | null
+                    variant_used?: string | null
+                    gate_score?: number | null
+                    channel?: string | null
+                    message_sid?: string | null
+                    wa_status?: string | null
+                    created_at?: string
                 }
                 Update: {
                     id?: string
-                    created_at?: string
                     lead_id?: string
-                    message?: string
-                    type?: string
-                    owner_id?: string
+                    business_name?: string | null
+                    email_address?: string | null
+                    touch_number?: number | null
+                    subject?: string | null
+                    body?: string | null
+                    send_status?: string | null
+                    sent_at?: string | null
+                    failure_reason?: string | null
+                    sequence_status?: string | null
+                    variant_used?: string | null
+                    gate_score?: number | null
+                    channel?: string | null
+                    message_sid?: string | null
+                    wa_status?: string | null
+                    created_at?: string
                 }
                 Relationships: [
                     {
-                        foreignKeyName: "outreach_logs_lead_id_fkey"
+                        foreignKeyName: "outreach_log_lead_id_fkey"
                         columns: ["lead_id"]
                         referencedRelation: "leads"
                         referencedColumns: ["id"]

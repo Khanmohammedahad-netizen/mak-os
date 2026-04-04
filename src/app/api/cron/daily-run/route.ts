@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         const results = []
         for (const city of todaysCities) {
             console.log(`[DailyRunCron] Starting execution for ${city}...`)
-            const result = await runOutreachPipeline(todaysCategory, city, supabase, { maxResults: 20 })
+            const result = await runOutreachPipeline(todaysCategory, city, supabase, { maxResults: 20, queuedMode: true })
             results.push({ city, result })
         }
 

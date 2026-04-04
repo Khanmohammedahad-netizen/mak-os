@@ -92,16 +92,13 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 setLeads((prev) =>
                     prev.map((l) =>
                         l.id === leadId
-                            ? { ...l, email: data.enriched.email, status: 'enriched' }
+                            ? { ...l, email: data.enriched?.email || l.email, status: data.status || 'enriched' }
                             : l
                     )
                 )
-            } else {
-                alert(data.message || data.error || 'Enrichment failed')
             }
         } catch (err) {
             console.error('Enrich error:', err)
-            alert('Enrichment failed. Check console.')
         } finally {
             setActionLoading((prev) => {
                 const next = { ...prev }
@@ -202,6 +199,13 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 return 'bg-green-100 text-green-800 border-green-200'
             case 'phone_required':
                 return 'bg-orange-100 text-orange-800 border-orange-200'
+            case 'wa_sent':
+                return 'bg-emerald-100 text-emerald-800 border-emerald-200'
+            case 'no_email':
+            case 'bad_data':
+                return 'bg-red-50 text-red-700 border-red-100'
+            case 'unreachable':
+                return 'bg-gray-100 text-gray-800 border-gray-200'
             case 'email_failed':
                 return 'bg-red-100 text-red-800 border-red-200'
             case 'queued':
@@ -215,8 +219,8 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
     // ─── Outreach metrics ──────────────────────────────────────────
     const metrics = {
         total: leads.length,
-        contacted: leads.filter(l => l.status === 'contacted' || l.status === 'emailed').length,
-        phoneRequired: leads.filter(l => l.status === 'phone_required').length,
+        contacted: leads.filter(l => l.status === 'contacted' || l.status === 'emailed' || l.status === 'wa_sent').length,
+        phoneRequired: leads.filter(l => l.status === 'phone_required' || l.status === 'wa_sent').length,
         queued: leads.filter(l => l.status === 'queued').length,
         qualified: leads.filter(l => l.status === 'qualified' || l.status === 'new').length,
     }
@@ -268,7 +272,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 </div>
                 <div className="bg-white rounded-lg border p-4 text-center">
                     <div className="text-2xl font-bold text-orange-600">{metrics.phoneRequired}</div>
-                    <div className="text-xs text-gray-500 mt-1">Phone Outreach</div>
+                    <div className="text-xs text-gray-500 mt-1">Phone/WA Outreach</div>
                 </div>
                 <div className="bg-white rounded-lg border p-4 text-center">
                     <div className="text-2xl font-bold text-purple-600">{metrics.queued}</div>
@@ -287,89 +291,9 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                     </div>
                 </div>
 
-                {/* ─── Mobile Swipe Review Deck ─── */}
-                <div className="md:hidden mb-2 p-4 bg-slate-50 border-b">
-                    <h2 className="text-[15px] font-semibold text-slate-800 mb-3 flex items-center justify-between">
-                        Needs Review
-                        <span className="bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full font-bold">
-                            {leads.filter(l => l.status === 'new' || l.status === 'qualified').length} Pending
-                        </span>
-                    </h2>
-
-                    {(() => {
-                        const reviewLeads = leads.filter(l => l.status === 'new' || l.status === 'qualified')
-                        if (reviewLeads.length === 0) {
-                            return (
-                                <div className="bg-slate-100/50 border border-slate-200 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center">
-                                    <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
-                                        <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                                    </div>
-                                    <p className="text-slate-600 font-medium">Inbox Zero!</p>
-                                    <p className="text-sm text-slate-400 mt-1">All leads have been processed.</p>
-                                </div>
-                            )
-                        }
-
-                        const topLead = reviewLeads[0]
-                        const isProcessing = !!actionLoading[topLead.id]
-
-                        return (
-                            <div className="relative w-full bg-white rounded-2xl border shadow-sm p-5 transition-all">
-                                <div className="absolute top-4 right-4 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                    {topLead.source || 'General'}
-                                </div>
-                                <h3 className="text-xl font-bold text-slate-900 pr-16 leading-tight mb-1">{topLead.company}</h3>
-                                <p className="text-sm text-slate-500 mb-4">{topLead.city || 'Unknown Location'} • {topLead.category || 'Business'}</p>
-
-                                <div className="space-y-2 mb-6 text-sm">
-                                    {topLead.website && (
-                                        <div className="flex items-center gap-2 text-sky-600 bg-sky-50 px-3 py-2 rounded-lg truncate">
-                                            <span className="text-sky-400 font-bold truncate">{topLead.website}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-2 text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
-                                        {topLead.email || <span className="text-slate-400 italic">No email found</span>}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3 mt-4">
-                                    <button
-                                        onClick={async () => {
-                                            setActionLoading(p => ({ ...p, [topLead.id]: 'rejecting' }))
-                                            await supabase.from('leads').update({ status: 'rejected' }).eq('id', topLead.id)
-                                            setActionLoading(p => { const n = { ...p }; delete n[topLead.id]; return n })
-                                        }}
-                                        disabled={isProcessing}
-                                        className="py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-bold tracking-wide active:scale-95 transition-all text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-                                    >
-                                        <X className="w-4 h-4" /> Reject
-                                    </button>
-
-                                    <button
-                                        onClick={async () => {
-                                            if (topLead.phone) {
-                                                handleOpenCallModal(topLead)
-                                            } else if (topLead.email) {
-                                                handleSendEmail(topLead.id)
-                                            } else {
-                                                handleEnrich(topLead.id)
-                                            }
-                                        }}
-                                        disabled={isProcessing}
-                                        className="py-3 rounded-xl bg-slate-900 text-white font-bold tracking-wide active:scale-95 transition-all text-sm shadow-[0_4px_14px_0_rgba(0,0,0,0.2)] disabled:opacity-50 flex items-center justify-center gap-2"
-                                    >
-                                        <Bot className="w-4 h-4" />
-                                        {isProcessing ? 'Working...' : (topLead.phone ? 'Review & Call' : topLead.email ? 'Queue Email' : 'Auto Enrich')}
-                                    </button>
-                                </div>
-                            </div>
-                        )
-                    })()}
-                </div>
-
                 {/* ─── Mobile View: Card List ─── */}
                 <div className="md:hidden flex flex-col divide-y">
-                    {leads.filter(l => l.status !== 'new' && l.status !== 'qualified').map((lead) => {
+                    {leads.map((lead) => {
                         const loading = actionLoading[lead.id]
                         return (
                             <div key={lead.id} className="p-4 flex flex-col gap-3">
@@ -398,16 +322,16 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                     </div>
                                 </div>
                                 <div className="flex gap-2 mt-2 pt-3 border-t">
-                                    {!lead.email && !['contacted', 'emailed', 'phone_required'].includes(lead.status) && (
+                                    {!lead.email && !['contacted', 'emailed', 'wa_sent', 'bad_data', 'unreachable'].includes(lead.status) && (
                                         <button
                                             onClick={() => handleEnrich(lead.id)}
                                             disabled={!!loading}
                                             className="touch-target flex-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition disabled:opacity-50 text-sm"
                                         >
-                                            {loading === 'enriching' ? '⏳ Enriching' : '🔍 Enrich'}
+                                            {loading === 'enriching' ? '⏳ Working' : '🔍 Enrich'}
                                         </button>
                                     )}
-                                    {lead.phone && !['contacted'].includes(lead.status) && (
+                                    {lead.phone && !['contacted', 'wa_sent'].includes(lead.status) && (
                                         <button
                                             onClick={() => handleOpenCallModal(lead)}
                                             disabled={!!loading}
@@ -488,14 +412,26 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                         <td className="p-4 text-right">
                                             <div className="flex gap-2 justify-end">
                                                 {/* Enrich button */}
-                                                {!lead.email && !['contacted', 'emailed', 'phone_required'].includes(lead.status) && (
+                                                {!lead.email && !['contacted', 'emailed', 'wa_sent', 'bad_data', 'unreachable'].includes(lead.status) && (
                                                     <button
                                                         onClick={() => handleEnrich(lead.id)}
                                                         disabled={!!loading}
                                                         className="text-xs px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition disabled:opacity-50"
                                                     >
-                                                        {loading === 'enriching' ? '⏳ Enriching...' : '🔍 Enrich'}
+                                                        {loading === 'enriching' ? '⏳ Working...' : '🔍 Enrich'}
                                                     </button>
+                                                )}
+
+                                                {lead.status === 'wa_sent' && (
+                                                    <span className="text-xs px-3 py-1.5 text-emerald-600">📲 WhatsApp Sent</span>
+                                                )}
+                                                
+                                                {lead.status === 'bad_data' && (
+                                                    <span className="text-xs px-3 py-1.5 text-red-400">⚠️ Bad Phone</span>
+                                                )}
+                                                
+                                                {lead.status === 'unreachable' && (
+                                                    <span className="text-xs px-3 py-1.5 text-gray-400">🔇 Unreachable</span>
                                                 )}
 
                                                 {/* Send Email button */}
@@ -513,23 +449,11 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                 {(lead.status === 'contacted' || lead.status === 'emailed') && (
                                                     <span className="text-xs px-3 py-1.5 text-green-600">✅ Contacted</span>
                                                 )}
-
-                                                {/* Phone required badge */}
-                                                {lead.status === 'phone_required' && (
-                                                    <span className="text-xs px-3 py-1.5 text-orange-600">📞 Call Needed</span>
-                                                )}
                                             </div>
                                         </td>
                                     </tr>
                                 )
                             })}
-                            {leads.length === 0 && (
-                                <tr>
-                                    <td colSpan={8} className="p-8 text-center text-gray-500">
-                                        No leads found. Run a lead generation task to populate this pipeline!
-                                    </td>
-                                </tr>
-                            )}
                         </tbody>
                     </table>
                 </div>

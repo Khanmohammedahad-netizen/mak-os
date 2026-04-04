@@ -78,11 +78,7 @@ export default function AgentsDashboard() {
         const now = new Date().toLocaleTimeString()
 
         setTaskPayload(null) // clear previous payload
-        // Immediate feedback
-        setTaskLog(prev => [
-            ...prev,
-            { time: now, msg: `Task submitted: "${taskInput}"`, level: 'info' },
-        ])
+        setTaskLog([{ time: now, msg: `Task submitted: "${taskInput}"`, level: 'info' }])
 
         try {
             const res = await fetch('/api/agents/tasks', {
@@ -90,26 +86,48 @@ export default function AgentsDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ description: taskInput }),
             })
-            const data = await res.json()
 
-            if (data.logs && Array.isArray(data.logs)) {
-                const ts = new Date().toLocaleTimeString()
-                // Skip the first "Task submitted" since we already added it
-                const apiLogs = data.logs.slice(1).map((msg: string) => {
-                    let level = 'info'
-                    if (msg.startsWith('Workflow detected')) level = 'workflow'
-                    else if (msg.startsWith('Stage')) level = 'stage'
-                    else if (msg.includes('completed')) level = 'success'
-                    else if (msg.includes('dispatched')) level = 'info'
-                    return { time: ts, msg, level }
-                })
-                setTaskLog(prev => [...prev, ...apiLogs])
+            if (!res.body) throw new Error('No body')
+
+            const reader = res.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() || ''
+
+                for (const line of lines) {
+                    if (!line.trim()) continue
+                    try {
+                        const data = JSON.parse(line)
+                        if (data.type === 'log') {
+                            const ts = new Date().toLocaleTimeString()
+                            let level = 'info'
+                            const msg = data.message
+                            if (msg.startsWith('Workflow detected')) level = 'workflow'
+                            else if (msg.startsWith('Stage')) level = 'stage'
+                            else if (msg.includes('completed')) level = 'success'
+                            else if (msg.includes('dispatched')) level = 'info'
+                            else if (msg.includes('Queued')) level = 'workflow'
+                            
+                            setTaskLog(prev => [...prev, { time: ts, msg, level }])
+                        } else if (data.type === 'done') {
+                            setTaskPayload(data.payload)
+                        }
+                    } catch (e) {
+                        console.error('Error parsing stream line:', e)
+                    }
+                }
             }
-            if (data.payload) setTaskPayload(data.payload)
-        } catch {
+        } catch (err: any) {
             setTaskLog(prev => [
                 ...prev,
-                { time: new Date().toLocaleTimeString(), msg: 'Error: Failed to execute task', level: 'error' },
+                { time: new Date().toLocaleTimeString(), msg: `Error: ${err.message || 'Failed to execute task'}`, level: 'error' },
             ])
         }
 

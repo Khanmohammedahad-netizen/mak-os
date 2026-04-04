@@ -87,10 +87,12 @@ export async function processOutreachQueue(supabase: any): Promise<QueueResult> 
                 contact_method: 'emailed',
             }).eq('id', lead.id)
 
-            await supabase.from('outreach_logs').insert({
+            await supabase.from('outreach_log').insert({
                 lead_id: lead.id,
-                message: `Email sent: ${subject}`,
-                type: 'email_sent',
+                subject: `Email sent: ${subject}`,
+                body: `Outreach email triggered via queue`,
+                channel: 'email',
+                send_status: 'sent'
             }).catch(() => { })
 
             result.emailsSent++

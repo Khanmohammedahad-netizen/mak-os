@@ -17,6 +17,7 @@ import { getDailyLimit, getDelayBetweenEmails } from './email/warmup-schedule'
 import { isSuppressed } from './email/bounce-handler'
 import { evaluateVariants } from './quality-gate'
 import { checkDailyBudgetCap } from './cost-tracker'
+import { validateGCCPhone } from './utils/phone-validation'
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -25,10 +26,12 @@ export interface OutreachResult {
     qualified: number
     enriched: number
     emailsSent: number
+    whatsappSent?: number
     phoneRequired: number
     queued?: number
     errors: number
     logs: string[]
+    onLog?: (msg: string) => void
 }
 
 export type AuditCategory = 'A - Needs Website' | 'B - Outdated' | 'C - Facebook Only' | 'D - Good Website'
@@ -40,6 +43,8 @@ interface QualifiedLead extends GoogleMapsLead {
     priorityLane: PriorityLane
     auditCategory?: AuditCategory
     opportunitySummary?: string
+    country?: string
+    status?: string
 }
 
 // ─── Chain Blacklist ──────────────────────────────────────────────
@@ -172,10 +177,10 @@ function auditWebsite(lead: GoogleMapsLead): { category: AuditCategory; summary:
 
 // ─── Stage 4: Contact Enrichment Waterfall ──────────────────────────
 
-async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: string[]): Promise<string | null> {
+async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, fastLog: (msg: string) => void): Promise<string | null> {
     // Stage 4.1: Directory Check
     if (lead.email) {
-        logs.push(`[Stage 4] ${lead.name}: Email already available via Directory (${lead.email})`)
+        fastLog(`[Stage 4] ${lead.name}: Email already available via Directory (${lead.email})`)
         return lead.email
     }
 
@@ -191,7 +196,7 @@ async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: 
         try {
             const { data: cached } = await supabase.from('email_cache').select('email').eq('domain', domain).single()
             if (cached?.email) {
-                logs.push(`[Stage 4] ${lead.name}: Found email in Cache (${cached.email})`)
+                fastLog(`[Stage 4] ${lead.name}: Found email in Cache (${cached.email})`)
                 return cached.email
             }
         } catch (e) {
@@ -205,7 +210,7 @@ async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: 
             const contacts = await enrichContacts([lead.website])
             if (contacts.length > 0 && contacts[0].emails && contacts[0].emails.length > 0) {
                 const foundEmail = contacts[0].emails[0]
-                logs.push(`[Stage 4] ${lead.name}: Found email via Website Scraper (${foundEmail})`)
+                fastLog(`[Stage 4] ${lead.name}: Found email via Website Scraper (${foundEmail})`)
 
                 if (domain && supabase) {
                     await supabase.from('email_cache').upsert({
@@ -215,12 +220,12 @@ async function enrichContactWaterfall(lead: QualifiedLead, supabase: any, logs: 
                 return foundEmail
             }
         } catch (e) {
-            logs.push(`[Stage 4] ${lead.name}: Website scraper fallback failed`)
+            fastLog(`[Stage 4] ${lead.name}: Website scraper fallback failed`)
         }
     }
 
     // Stage 4.4: Removed Pattern Guessing (v1.2 Policy: No placeholder fabrication)
-    logs.push(`[Stage 4] ${lead.name}: No verified email found -> website search required`)
+    fastLog(`[Stage 4] ${lead.name}: No verified email found -> website search required`)
     return null
 }
 
@@ -241,11 +246,19 @@ export async function runOutreachPipeline(
     categoryOrCategories: string | string[],
     city: string,
     supabase: any,
-    options: { maxResults?: number; dryRun?: boolean } = {}
+    options: { maxResults?: number; dryRun?: boolean; queuedMode?: boolean; onLog?: (msg: string) => void } = {}
 ): Promise<OutreachResult> {
-    const { maxResults = 20, dryRun = false } = options
+    const { maxResults = 20, dryRun = false, queuedMode = false, onLog } = options
     const categories = Array.isArray(categoryOrCategories) ? categoryOrCategories : [categoryOrCategories]
     const logs: string[] = []
+
+    const fastLog = (msg: string) => {
+        logs.push(msg)
+        if (onLog) {
+            try { onLog(msg); } catch (e) { console.error('onLog error:', e); }
+        }
+    }
+
     const result: OutreachResult = {
         discovered: 0, qualified: 0, enriched: 0,
         emailsSent: 0, phoneRequired: 0, errors: 0, logs,
@@ -255,14 +268,14 @@ export async function runOutreachPipeline(
         // Get owner_id for DB inserts (required NOT NULL field)
         const ownerId = await getOwnerId(supabase)
         if (!ownerId) {
-            logs.push(`[Pipeline] Warning: Could not find owner_id, inserts may fail`)
+            fastLog(`[Pipeline] Warning: Could not find owner_id, inserts may fail`)
         }
 
         // ─── Stage 0: Budget Cap Check ──────────────
         const budgetCap = parseFloat(process.env.DAILY_BUDGET_CAP || '1.00')
         const { overBudget, currentSpend } = await checkDailyBudgetCap(supabase, budgetCap)
         if (overBudget) {
-            logs.push(`[Budget] CRITICAL: Daily cap of $${budgetCap.toFixed(2)} reached. Spend: $${currentSpend.toFixed(2)}. Halting pipeline.`)
+            fastLog(`[Budget] CRITICAL: Daily cap of $${budgetCap.toFixed(2)} reached. Spend: $${currentSpend.toFixed(2)}. Halting pipeline.`)
             result.errors++
             return result
         }
@@ -272,23 +285,23 @@ export async function runOutreachPipeline(
         const MAX_TOTAL_LEADS = categories.length > 1 ? 100 : maxResults
 
         if (categories.length > 1) {
-            logs.push(`[Stage 1] ResearchAgent: Searching ${categories.length} categories in ${city}...`)
+            fastLog(`[Stage 1] ResearchAgent: Searching ${categories.length} categories in ${city}...`)
 
             for (const cat of categories) {
                 try {
                     // For multi-category, we fetch a smaller number per category but cap the total
-                    const catLeads = await scrapeGoogleMaps(cat, city, 100, supabase, logs)
+                    const catLeads = await scrapeGoogleMaps(cat, city, 100, supabase, fastLog as any)
                     rawLeads.push(...catLeads)
-                    logs.push(`[Stage 1] ${cat} → ${catLeads.length} found`)
+                    fastLog(`[Stage 1] ${cat} → ${catLeads.length} found`)
 
                     if (rawLeads.length >= MAX_TOTAL_LEADS) break
                 } catch (e: any) {
-                    logs.push(`[Stage 1] Error searching for ${cat}: ${e.message}`)
+                    fastLog(`[Stage 1] Error searching for ${cat}: ${e.message}`)
                 }
             }
         } else {
-            logs.push(`[Stage 1] ResearchAgent: Scraping "${categories[0]}" in "${city}"`)
-            const singleCatLeads = await scrapeGoogleMaps(categories[0], city, maxResults, supabase, logs)
+            fastLog(`[Stage 1] ResearchAgent: Scraping "${categories[0]}" in "${city}"`)
+            const singleCatLeads = await scrapeGoogleMaps(categories[0], city, maxResults, supabase, fastLog as any)
             rawLeads.push(...singleCatLeads)
         }
 
@@ -298,17 +311,17 @@ export async function runOutreachPipeline(
         ).values()).slice(0, MAX_TOTAL_LEADS)
 
         result.discovered = uniqueLeads.length
-        logs.push(`[Stage 1] Total: ${uniqueLeads.length} businesses discovered`)
+        fastLog(`[Stage 1] Total: ${uniqueLeads.length} businesses discovered`)
 
         // ─── Stage 2: LeadFinderAgent — Qualify ───────────
-        logs.push(`[Stage 2] LeadFinderAgent: Qualifying leads...`)
+        fastLog(`[Stage 2] LeadFinderAgent: Qualifying leads...`)
         const qualified: QualifiedLead[] = []
         let discardedCount = 0
 
         for (const lead of uniqueLeads) {
             // Chain filter
             if (isFranchise(lead.name)) {
-                logs.push(`[Stage 2] Filtered chain/franchise: ${lead.name}`)
+                fastLog(`[Stage 2] Filtered chain/franchise: ${lead.name}`)
                 discardedCount++
                 continue
             }
@@ -346,15 +359,15 @@ export async function runOutreachPipeline(
         const topQualified = qualified.slice(0, MAX_TO_ENRICH);
 
         result.qualified = topQualified.length
-        logs.push(`[Stage 2] ${topQualified.length} qualified leads kept (cost-optimization limit) - Discarded raw: ${discardedCount + (qualified.length - topQualified.length)}`)
+        fastLog(`[Stage 2] ${topQualified.length} qualified leads kept (cost-optimization limit) - Discarded raw: ${discardedCount + (qualified.length - topQualified.length)}`)
 
         if (topQualified.length === 0) {
-            logs.push(`[Stage 2] No qualified leads found. Pipeline complete.`)
+            fastLog(`[Stage 2] No qualified leads found. Pipeline complete.`)
             return result
         }
 
         // ─── Stage 3: WebsiteAuditAgent — Check websites ─
-        logs.push(`[Stage 3] WebsiteAuditAgent: Auditing websites...`)
+        fastLog(`[Stage 3] WebsiteAuditAgent: Auditing websites...`)
         const websiteQualified: typeof qualified = []
 
         for (const lead of topQualified) {
@@ -364,7 +377,7 @@ export async function runOutreachPipeline(
                 if (verifiedUrl) {
                     lead.website = verifiedUrl
                     lead.noWebsiteConfirmed = false
-                    logs.push(`[Stage 3] ${lead.name}: Website found via active verification → ${verifiedUrl}`)
+                    fastLog(`[Stage 3] ${lead.name}: Website found via active verification → ${verifiedUrl}`)
                 }
             }
 
@@ -372,11 +385,11 @@ export async function runOutreachPipeline(
             const audit = auditWebsite(lead)
 
             if (audit.category === 'D - Good Website') {
-                logs.push(`[Stage 3] ${lead.name}: Has good website → Skipping`)
+                fastLog(`[Stage 3] ${lead.name}: Has good website → Skipping`)
                 continue
             }
 
-            logs.push(`[Stage 3] ${lead.name}: ${audit.category}`)
+            fastLog(`[Stage 3] ${lead.name}: ${audit.category}`)
 
             websiteQualified.push({
                 ...lead,
@@ -386,7 +399,7 @@ export async function runOutreachPipeline(
         }
 
         // ─── Stage 4: ContactEnrichmentAgent ──────────────
-        logs.push(`[Stage 4] ContactEnrichmentAgent: Enriching contacts...`)
+        fastLog(`[Stage 4] ContactEnrichmentAgent: Enriching contacts...`)
 
         // Get rate limit status based on Warm-up schedule
         const startDate = new Date(process.env.EMAIL_ACCOUNT_START_DATE || '2026-03-01')
@@ -402,17 +415,33 @@ export async function runOutreachPipeline(
 
         const dailySent = await getDailySentCount(supabase)
         const remaining = Math.max(0, DAILY_LIMIT - dailySent)
-        logs.push(`[Stage 4] Daily email budget: ${remaining}/${DAILY_LIMIT} remaining (Age: ${ageDays} days)`)
+        fastLog(`[Stage 4] Daily email budget: ${remaining}/${DAILY_LIMIT} remaining (Age: ${ageDays} days)`)
 
         // Only enrich leads we can actually contact today
         const leadsToProcess = websiteQualified.slice(0, remaining || websiteQualified.length)
 
         for (const lead of leadsToProcess) {
-            const foundEmail = await enrichContactWaterfall(lead, supabase, logs)
+            const foundEmail = await enrichContactWaterfall(lead, supabase, fastLog)
             if (foundEmail) {
                 lead.email = foundEmail
                 result.enriched++
+                lead.status = 'enriched'
             } else {
+                // --- Enrichment Failure Transition ---
+                const validation = validateGCCPhone(lead.phone, lead.city || city)
+                
+                if (validation.status === 'bad_data') {
+                    fastLog(`[Stage 4] ${lead.name}: Bad phone format for ${lead.city || city} → Resetting phone`)
+                    lead.phone = null
+                    lead.status = 'bad_data'
+                } else if (validation.status === 'wa_ready') {
+                    fastLog(`[Stage 4] ${lead.name}: No email but valid GCC phone → Marked for WhatsApp`)
+                    lead.status = 'wa_pending' // Custom internal state before final send
+                } else {
+                    fastLog(`[Stage 4] ${lead.name}: Unreachable (No email, no valid phone)`)
+                    lead.status = 'unreachable'
+                }
+                
                 result.phoneRequired++
             }
         }
@@ -421,15 +450,6 @@ export async function runOutreachPipeline(
         // ─── Stages 5-7: Generate, Send, Log ─────────────
         for (let i = 0; i < leadsToProcess.length; i++) {
             const lead = leadsToProcess[i]
-
-            // Skip suppressed emails
-            if (lead.email) {
-                const suppressed = await isSuppressed(supabase, lead.email)
-                if (suppressed) {
-                    logs.push(`[Stage 4] Skipping suppressed email: ${lead.email}`)
-                    continue
-                }
-            }
 
             // ─── Duplicate Detection ─────────────────────
             const { data: existing } = await supabase
@@ -441,12 +461,11 @@ export async function runOutreachPipeline(
                 .single()
 
             if (existing) {
-                logs.push(`[CRM] Skipped duplicate: ${lead.name} (${lead.city || city})`)
+                fastLog(`[CRM] Skipped duplicate: ${lead.name} (${lead.city || city})`)
                 continue
             }
 
             // Insert lead into Supabase
-            // Note: status uses lead_status ENUM (default 'new'), owner_id is NOT NULL
             const leadRecord: Record<string, any> = {
                 company: lead.name,
                 email: lead.email || null,
@@ -456,10 +475,11 @@ export async function runOutreachPipeline(
                 website: lead.website || null,
                 source: 'Google Maps',
                 priority_score: Math.round(lead.priorityScore),
-                contact_method: lead.email ? 'email' : 'website search required',
+                contact_method: lead.email ? (queuedMode ? 'queued' : 'email') : 'website search required',
+                website_category: lead.auditCategory,
+                opportunity_summary: lead.opportunitySummary,
             }
 
-            // owner_id is required
             if (ownerId) leadRecord.owner_id = ownerId
 
             const { data: inserted, error: insertErr } = await supabase
@@ -469,23 +489,30 @@ export async function runOutreachPipeline(
                 .single()
 
             if (insertErr || !inserted) {
-                logs.push(`[CRM] Insert error for ${lead.name}: ${insertErr?.message || 'Unknown'}`)
+                fastLog(`[CRM] Insert error for ${lead.name}: ${insertErr?.message || 'Unknown'}`)
                 result.errors++
                 continue
             }
 
             const leadId = inserted.id
 
-            if (lead.email && !dryRun) {
+            if (queuedMode && lead.email) {
+                fastLog(`[Pipeline] Queued email outreach for ${lead.name} (${lead.email})`)
+                result.queued = (result.queued || 0) + 1
+                continue
+            }
+
+            // --- DEPRECATED: Synchronous Sending below is now only used for Dry Runs or force-direct ---
+            if (lead.email && !dryRun && !queuedMode) {
                 // Check rate limit dynamically
                 const currentCount = await getDailySentCount(supabase)
                 if (currentCount >= DAILY_LIMIT) {
-                    logs.push(`[Stage 6] Warm-up Limit reached (${DAILY_LIMIT}). Queued email for ${lead.name}.`)
+                    fastLog(`[Stage 6] Warm-up Limit reached (${DAILY_LIMIT}). Queued email for ${lead.name}.`)
                     result.queued = (result.queued || 0) + 1
                     continue
                 }
 
-                // ─── Stage 5 & 6: MarketingAgent & Quality Gate
+                // Stage 5 & 6: MarketingAgent & Quality Gate
                 const variants = buildOutreachVariants({
                     company: lead.name,
                     city: lead.city || city,
@@ -497,20 +524,18 @@ export async function runOutreachPipeline(
                 const gate = evaluateVariants(lead.name, lead.city || city, variants)
 
                 if (gate.gate_result === 'fail' || !gate.selected_variant) {
-                    logs.push(`[Stage 6] QualityGate failed for ${lead.name} - blocked send`)
+                    fastLog(`[Stage 6] QualityGate failed for ${lead.name} - blocked send`)
                     result.errors++
                     continue
                 }
 
                 if (gate.gate_result === 'conditional') {
-                    logs.push(`[Stage 6] QualityGate flagged conditional for ${lead.name} - skipped auto-send`)
-                    // Keep lead in pending queue but don't send today
+                    fastLog(`[Stage 6] QualityGate flagged conditional for ${lead.name} - skipped auto-send`)
                     continue
                 }
 
-                logs.push(`[Stage 5] MarketingAgent: Generated outreach for ${lead.name} (${gate.selected_variant} passed gate)`)
+                fastLog(`[Stage 5] MarketingAgent: Generated outreach for ${lead.name} (${gate.selected_variant} passed gate)`)
 
-                // --- Stage 7: AutomationAgent — Send email via Unified Service
                 try {
                     const resultMail = await sendOutreachEmail({
                         to: lead.email,
@@ -523,10 +548,9 @@ export async function runOutreachPipeline(
                         throw new Error(resultMail.error || 'Failed sending via Unified Service')
                     }
 
-                    logs.push(`[Automation] Email sent to ${lead.name} via ${resultMail.provider.toUpperCase()}`)
+                    fastLog(`[Automation] Email sent to ${lead.name} via ${resultMail.provider.toUpperCase()}`)
                     result.emailsSent++
 
-                    // ─── Stage 8: CRM Update
                     await supabase.from('leads').update({
                         status: 'contacted',
                         contacted_at: new Date().toISOString(),
@@ -535,75 +559,76 @@ export async function runOutreachPipeline(
                         contact_method: 'emailed',
                     }).eq('id', leadId)
 
-                    try {
-                        const { error: logErr } = await supabase.from('outreach_log').insert({
-                            lead_id: leadId,
-                            business_name: lead.name,
-                            email_address: lead.email,
-                            touch_number: 1,
-                            subject: gate.selected_subject,
-                            body: gate.selected_body,
-                            send_status: 'sent',
-                            sent_at: new Date().toISOString(),
-                            sequence_status: 'active',
-                            variant_used: gate.selected_variant,
-                            gate_score: (gate.scores as any)[gate.selected_variant!].average
-                        })
-                        if (logErr) console.error('[OutreachEngine] Log Insert Error:', logErr)
-
-                        // Old backwards-compatible logs
-                        await supabase.from('outreach_logs').insert({
-                            lead_id: leadId,
-                            message: `Email sent: ${gate.selected_subject}`,
-                            type: 'email_sent',
-                        })
-                    } catch (e) {
-                        console.error('[OutreachEngine] Error logging outreach_log:', e)
-                    }
-
-                    // Protect Domain Reputation: Wait before sending the next email
-                    if (i < leadsToProcess.length - 1) {
-                        const delay = 8 * 60 * 1000 // 8 minutes between sends
-                        logs.push(`[Automation] Waiting 8 min before next send...`)
-                        await new Promise(resolve => setTimeout(resolve, delay))
-                    }
+                    // Logs...
+                    await supabase.from('outreach_log').insert({
+                        lead_id: leadId,
+                        business_name: lead.name,
+                        email_address: lead.email,
+                        touch_number: 1,
+                        subject: gate.selected_subject,
+                        body: gate.selected_body,
+                        send_status: 'sent',
+                        sent_at: new Date().toISOString(),
+                        sequence_status: 'active',
+                        variant_used: gate.selected_variant,
+                        gate_score: (gate.scores as any)[gate.selected_variant!].average
+                    }).catch(() => { })
 
                 } catch (sendErr: any) {
-                    logs.push(`[Stage 7] Email failed for ${lead.name}: ${sendErr.message}`)
+                    fastLog(`[Stage 7] Email failed for ${lead.name}: ${sendErr.message}`)
                     result.errors++
                     await supabase.from('leads').update({ contact_method: 'email_failed' }).eq('id', leadId)
                 }
-            } else if (!lead.email && lead.phone && !dryRun) {
-                // Flag for phone outreach
-                result.phoneRequired++
-                logs.push(`[Outreach] Phone outreach required for ${lead.name}`)
-                await supabase.from('leads').update({ contact_method: 'phone' }).eq('id', leadId)
-
+            } else if ((!lead.email && lead.phone && !dryRun) || lead.status === 'wa_pending') {
+                // WhatsApp Fallback
+                fastLog(`[Outreach] Found phone but no email for ${lead.name} — routing to WhatsApp...`)
+                
                 try {
-                    await supabase.from('outreach_logs').insert({
-                        lead_id: leadId,
-                        message: `Phone outreach needed — no email found`,
-                        type: 'phone_required',
+                    const { triggerWhatsAppOutreach } = await import('./actions/whatsapp-outreach')
+                    const waResult = await triggerWhatsAppOutreach({
+                        id: leadId,
+                        name: lead.name,
+                        city: lead.city || city,
+                        country: lead.country || undefined,
+                        phone: lead.phone!,
+                        category: lead.category || undefined,
+                        opportunity_summary: lead.opportunitySummary
                     })
-                } catch (e) {
-                    console.error('[OutreachEngine] Error logging phone required:', e)
+
+                    if (waResult.success) {
+                        fastLog(`[WhatsApp] Outreach sent to ${lead.name} (${lead.phone})`)
+                        result.whatsappSent = (result.whatsappSent || 0) + 1
+                    } else {
+                        fastLog(`[WhatsApp] Outreach failed or pending (Sender Offline/Error): ${waResult.error}`)
+                        result.phoneRequired++
+                    }
+                } catch (waErr: any) {
+                    fastLog(`[WhatsApp] Integration error: ${waErr.message}`)
+                    result.phoneRequired++
                 }
             } else if (dryRun) {
-                // Dry run
-                logs.push(`[Stage 5] [DRY RUN] Would email ${lead.name} at ${lead.email || 'N/A'}`)
+                fastLog(`[Stage 5] [DRY RUN] Would email ${lead.name} at ${lead.email || 'N/A'}`)
             }
         } // End of leadsToProcess loop
 
-        // ─── Summary ─────────────────────────────────────
-        logs.push(``)
-        logs.push(`Workflow completed`)
-        logs.push(`Outreach emails sent: ${result.emailsSent}`)
-        logs.push(`Phone outreach required: ${result.phoneRequired}`)
-        if (result.errors > 0) logs.push(`Errors: ${result.errors}`)
+        fastLog(``)
+        fastLog(`Workflow completed`)
+        fastLog(`Qualified leads discovered: ${result.qualified}`)
+        if (result.whatsappSent && result.whatsappSent > 0) {
+            fastLog(`WhatsApp outreach sent: ${result.whatsappSent}`)
+        }
+        if (queuedMode) {
+            fastLog(`Outreach queued: ${result.queued || 0} leads`)
+            fastLog(`Background worker will process one email every 10 minutes to protect domain reputation.`)
+        } else {
+            fastLog(`Outreach emails sent: ${result.emailsSent}`)
+        }
+        fastLog(`Phone outreach required: ${result.phoneRequired}`)
+        if (result.errors > 0) fastLog(`Errors: ${result.errors}`)
 
         return result
     } catch (err: any) {
-        logs.push(`[Pipeline] Fatal error: ${err.message}`)
+        fastLog(`[Pipeline] Fatal error: ${err.message}`)
         result.errors++
         return result
     }

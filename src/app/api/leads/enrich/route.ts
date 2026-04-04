@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { enrichContacts } from '@/lib/apify'
+import { validateGCCPhone } from '@/lib/utils/phone-validation'
+import { triggerWhatsAppOutreach } from '@/lib/actions/whatsapp-outreach'
 
 /**
  * POST /api/leads/enrich
@@ -68,9 +70,36 @@ export async function POST(request: Request) {
                 })
             }
 
+            // --- Enrichment Failure Handling ---
+            const validation = validateGCCPhone(lead.phone, lead.city)
+            
+            if (validation.status === 'wa_ready') {
+                // Trigger WhatsApp Outreach
+                await triggerWhatsAppOutreach({
+                    id: lead.id,
+                    name: lead.company,
+                    city: lead.city || 'Dubai',
+                    phone: lead.phone!,
+                    category: lead.category || undefined
+                })
+                
+                return NextResponse.json({
+                    success: true,
+                    message: 'No email found. WhatsApp outreach triggered.',
+                    status: 'wa_sent'
+                })
+            }
+
+            // Update status based on validation
+            await supabase.from('leads').update({
+                status: validation.status === 'bad_data' ? 'bad_data' : 'unreachable',
+                phone: validation.status === 'bad_data' ? null : lead.phone
+            }).eq('id', leadId)
+
             return NextResponse.json({
                 success: false,
-                message: 'No contact info found for this business.',
+                message: validation.status === 'bad_data' ? 'Bad phone data for this region.' : 'No contact info found.',
+                status: validation.status
             })
         }
 
@@ -103,9 +132,34 @@ export async function POST(request: Request) {
             })
         }
 
+        // --- Enrichment Failure Handling ---
+        const validation = validateGCCPhone(lead.phone, lead.city)
+        
+        if (validation.status === 'wa_ready') {
+            await triggerWhatsAppOutreach({
+                id: lead.id,
+                name: lead.company,
+                city: lead.city || 'Dubai',
+                phone: lead.phone!,
+                category: lead.category || undefined
+            })
+            
+            return NextResponse.json({
+                success: true,
+                message: 'No email found. WhatsApp outreach triggered.',
+                status: 'wa_sent'
+            })
+        }
+
+        await supabase.from('leads').update({
+            status: validation.status === 'bad_data' ? 'bad_data' : 'unreachable',
+            phone: validation.status === 'bad_data' ? null : lead.phone
+        }).eq('id', leadId)
+
         return NextResponse.json({
             success: false,
-            message: 'No contact info found on the website.',
+            message: validation.status === 'bad_data' ? 'Bad phone data for this region.' : 'No contact info found on the website.',
+            status: validation.status
         })
     } catch (err: any) {
         console.error('[Enrich] Error:', err)

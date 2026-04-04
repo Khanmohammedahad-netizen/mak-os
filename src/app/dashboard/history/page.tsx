@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
     Mail, Phone, Clock, AlertCircle, MapPin, Globe,
-    RefreshCw, Play, Square, Zap, Send,
+    RefreshCw, Play, Square, Zap, Send, MessageCircle
 } from 'lucide-react'
 
 interface Lead {
@@ -24,6 +24,7 @@ interface Lead {
 interface Metrics {
     total: number
     emailed: number
+    whatsapp?: number
     phoneNeeded: number
     queued: number
     failed: number
@@ -44,6 +45,7 @@ const contactMethodColors: Record<string, string> = {
     phone: 'bg-amber-100 text-amber-700',
     queued: 'bg-purple-100 text-purple-700',
     email_failed: 'bg-red-100 text-red-700',
+    whatsapp: 'bg-emerald-100 text-emerald-700',
 }
 
 const contactMethodIcons: Record<string, any> = {
@@ -52,6 +54,7 @@ const contactMethodIcons: Record<string, any> = {
     phone: Phone,
     queued: Clock,
     email_failed: AlertCircle,
+    whatsapp: MessageCircle,
 }
 
 export default function HistoryPage() {
@@ -233,9 +236,10 @@ export default function HistoryPage() {
 
             {/* Metrics Bar */}
             {metrics && (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                     <MetricCard label="Total Leads" value={metrics.total} color="text-gray-900" bg="bg-gray-50" />
                     <MetricCard label="Emailed" value={metrics.emailed} color="text-green-700" bg="bg-green-50" />
+                    <MetricCard label="WhatsApp" value={metrics.whatsapp || 0} color="text-emerald-700" bg="bg-emerald-50" />
                     <MetricCard label="Phone" value={metrics.phoneNeeded} color="text-amber-700" bg="bg-amber-50" />
                     <MetricCard label="Queued" value={metrics.queued} color="text-purple-700" bg="bg-purple-50" />
                     <MetricCard label="Failed" value={metrics.failed} color="text-red-700" bg="bg-red-50" />

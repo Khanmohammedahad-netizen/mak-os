@@ -95,70 +95,77 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'description is required' }, { status: 400 })
         }
 
-        const logs: string[] = []
-        const startTime = Date.now()
-
-        logs.push(`Task submitted: "${description}"`)
-
         const workflow = matchWorkflow(description)
+        const encoder = new TextEncoder()
+
+        if (workflow && workflow.name.includes('Lead Generation Pipeline')) {
+            // Streaming mode for long-running pipeline
+            const stream = new ReadableStream({
+                async start(controller) {
+                    const send = (data: any) => {
+                        controller.enqueue(encoder.encode(JSON.stringify(data) + '\n'))
+                    }
+
+                    try {
+                        const { parseTaskInput } = await import('@/lib/task-parser')
+                        const { runOutreachPipeline } = await import('@/lib/outreach-engine')
+                        const { supabaseAdmin } = await import('@/lib/supabase-admin')
+
+                        const parsed = parseTaskInput(description)
+                        const { categories, city: region } = parsed
+
+                        send({ type: 'log', message: `Task submitted: "${description}"` })
+                        send({ type: 'log', message: `Workflow detected: ${workflow.name}` })
+                        send({ type: 'log', message: `[TaskParser] City: "${region}", Categories: ${categories.join(', ')}` })
+
+                        const outreachResult = await runOutreachPipeline(
+                            categories, region, supabaseAdmin, {
+                            maxResults: 100,
+                            queuedMode: true,
+                            onLog: (msg) => send({ type: 'log', message: msg })
+                        }
+                        )
+
+                        const payload = {
+                            type: 'stats',
+                            title: 'Outreach Pipeline Initialized',
+                            metrics: [
+                                { label: 'Discovered', value: String(outreachResult.discovered) },
+                                { label: 'Qualified', value: String(outreachResult.qualified) },
+                                { label: 'Queued', value: String(outreachResult.queued || 0) },
+                                { label: 'Phone Required', value: String(outreachResult.phoneRequired) },
+                                { label: 'Errors', value: String(outreachResult.errors) },
+                            ],
+                        }
+
+                        send({ type: 'done', payload })
+                    } catch (e: any) {
+                        send({ type: 'log', message: `[System] Pipeline failed: ${e.message}` })
+                        send({ type: 'done', payload: { type: 'stats', title: 'Pipeline Error', metrics: [{ label: 'Error', value: e.message }] } })
+                    } finally {
+                        controller.close()
+                    }
+                }
+            })
+
+            return new Response(stream, {
+                headers: {
+                    'Content-Type': 'application/x-ndjson',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                }
+            })
+        }
+
+        // Standard response for quick tasks
+        const startTime = Date.now()
+        const logs: string[] = [`Task submitted: "${description}"`]
 
         if (workflow) {
             logs.push(`Workflow detected: ${workflow.name}`)
-
-            for (const stage of workflow.stages) {
-                logs.push(`Stage ${stage.step}: ${stage.agent}`)
-            }
-
             let payload: any = null
-            if (workflow.name.includes('Lead Generation Pipeline')) {
-                const parsed = parseTaskInput(description)
-                const { categories, city: region } = parsed
 
-                logs.push(`[TaskParser] Input: "${description}"`)
-                logs.push(`[TaskParser] City: "${region}"`)
-                logs.push(`[TaskParser] Categories: ${JSON.stringify(categories)}`)
-
-                try {
-                    // ─── Run Full Autonomous Outreach Pipeline ─────────
-                    const { runOutreachPipeline } = await import('@/lib/outreach-engine')
-                    const { supabaseAdmin } = await import('@/lib/supabase-admin')
-
-                    logs.push(`[System] Running autonomous outreach pipeline for ${categories.length} categories in ${region}...`)
-                    const outreachResult = await runOutreachPipeline(
-                        categories, region, supabaseAdmin, { maxResults: 100 }
-                    )
-
-                    // Merge outreach logs into the main logs
-                    logs.push(...outreachResult.logs)
-
-                    payload = {
-                        type: 'stats',
-                        title: 'Outreach Pipeline Complete',
-                        metrics: [
-                            { label: 'Discovered', value: String(outreachResult.discovered) },
-                            { label: 'Qualified', value: String(outreachResult.qualified) },
-                            { label: 'Emails Sent', value: String(outreachResult.emailsSent) },
-                            { label: 'Phone Outreach', value: String(outreachResult.phoneRequired) },
-                            { label: 'Errors', value: String(outreachResult.errors) },
-                        ],
-                    }
-
-                } catch (e: any) {
-                    console.error('--- OUTREACH PIPELINE ERROR ---')
-                    console.error(e)
-
-                    logs.push(`[System] Pipeline failed: ${e.message}`)
-                    if (e.stack) logs.push(`[System] Stack: ${e.stack}`)
-
-                    payload = {
-                        type: 'stats',
-                        title: 'Pipeline Error',
-                        metrics: [
-                            { label: 'Error', value: e.message },
-                        ],
-                    }
-                }
-            } else if (workflow.name.includes('Website Build Pipeline')) {
+            if (workflow.name.includes('Website Build Pipeline')) {
                 payload = {
                     type: 'stats',
                     title: 'Deployment Successful',
@@ -173,44 +180,22 @@ export async function POST(request: Request) {
             }
 
             logs.push(`Workflow completed (${Date.now() - startTime}ms)`)
-
             return NextResponse.json({
                 mode: 'workflow',
                 workflowName: workflow.name,
-                stages: workflow.stages.length,
-                agents: workflow.stages.map(s => s.agent),
                 logs,
-                durationMs: Date.now() - startTime,
                 status: 'completed',
                 payload
             })
         } else {
-            // Single agent dispatch
-            const agentMap: Record<string, string> = {
-                lead: 'LeadFinderAgent',
-                audit: 'WebsiteAuditAgent',
-                marketing: 'MarketingAgent',
-                research: 'ResearchAgent',
-                deploy: 'DevOpsAgent',
-                security: 'SecurityAgent',
-                automate: 'AutomationAgent',
-            }
-
-            let agentName = 'DeveloperAgent'
-            const text = description.toLowerCase()
-            for (const [key, name] of Object.entries(agentMap)) {
-                if (text.includes(key)) { agentName = name; break }
-            }
-
+            const agentName = 'DeveloperAgent'
             logs.push(`Agent dispatched: ${agentName}`)
-            logs.push(`Skills activated. System prompt assembled.`)
             logs.push(`Agent completed (${Date.now() - startTime}ms)`)
 
             return NextResponse.json({
                 mode: 'agent',
                 agentName,
                 logs,
-                durationMs: Date.now() - startTime,
                 status: 'completed',
                 payload: {
                     type: 'stats',
@@ -228,3 +213,4 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: msg }, { status: 500 })
     }
 }
+
