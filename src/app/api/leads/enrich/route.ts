@@ -4,6 +4,8 @@ import { enrichContacts } from '@/lib/apify'
 import { validateGCCPhone } from '@/lib/utils/phone-validation'
 import { triggerWhatsAppOutreach } from '@/lib/actions/whatsapp-outreach'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * POST /api/leads/enrich
  *
