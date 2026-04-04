@@ -1,6 +1,17 @@
 import { supabaseAdmin as supabase } from '../supabase-admin'
 import { normalizeWhatsAppNumber } from '@/lib/utils/normalize-phone'
 
+/*
+  WHATSAPP TEMPLATE SETUP (one-time manual step):
+  1. Go to Twilio Console → Messaging → Content Template Builder
+  2. Create template with category: MARKETING
+  3. Body example:
+     "Hi {{1}}, we noticed your business in {{2}} doesn't have a website yet.
+      MAK Software Solutions builds professional websites — reply YES to see a free demo."
+  4. Submit for Meta approval (24-48hrs)
+  5. Once approved, copy the Content SID → set as TWILIO_WHATSAPP_TEMPLATE_SID
+*/
+
 // ─── Types ────────────────────────────────────────────────────────
 
 interface WhatsAppLead {
@@ -12,6 +23,8 @@ interface WhatsAppLead {
     business_type?: string
     pain_point?: string
     opportunity_summary?: string
+    whatsapp_registered?: boolean | null
+    whatsapp_checked_at?: string | null
 }
 
 interface TwilioResponse {
@@ -25,84 +38,83 @@ interface TwilioResponse {
 
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
-const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY
-const MODEL = 'anthropic/claude-3.5-sonnet'
+const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || '+12134600101'
+const TEMPLATE_SID = process.env.TWILIO_WHATSAPP_TEMPLATE_SID
 
-// ─── AI Message Generation ────────────────────────────────────────
+// ─── Hardened Gating & Caching ─────────────────────────────────────
 
 /**
- * Uses OpenRouter to generate a high-quality personalized WhatsApp message
+ * Checks if a phone number is registered on WhatsApp using Twilio Lookup v2.
+ * Hardened with fail-safe logic and persistent caching in Supabase.
  */
-async function generateWhatsAppMessage(lead: WhatsAppLead): Promise<string> {
-    if (!OPENROUTER_KEY) {
-        return `Hi ${lead.name}! I noticed your business in ${lead.city} and wanted to reach out. I put together a quick free preview of what a new website could look like for you. Want me to send the link? No pressure. — MAK Software Solutions`
+async function isOnWhatsApp(phone: string, leadId: string): Promise<boolean> {
+    // 1. Check Supabase cache first
+    const { data: cached } = await (supabase.from('leads') as any)
+      .select('whatsapp_registered, whatsapp_checked_at')
+      .eq('id', leadId)
+      .single()
+  
+    if (cached?.whatsapp_checked_at && cached?.whatsapp_registered !== null) {
+      return cached.whatsapp_registered === true
     }
-
+  
+    // 2. Call Twilio Lookup v2
     try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_KEY}`,
-                'HTTP-Referer': 'https://maksoftware.io',
-                'X-Title': 'MAK OS v1',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: MODEL,
-                messages: [
-                    {
-                        role: 'system',
-                        content: `You are an outreach specialist for MAK Software Solutions, a premium software and AI agency based in Hyderabad serving businesses globally. Write a WhatsApp message to a business owner. Be conversational, warm, and specific to their business. Never sound like a bot or mass mailer.`
-                    },
-                    {
-                        role: 'user',
-                        content: `Write a WhatsApp outreach message for:
-- Business: ${lead.name}
-- City: ${lead.city}, ${lead.country || 'Unknown'}
-- Category: ${lead.business_type || lead.opportunity_summary || 'Business'}
-- Their likely pain point: ${lead.pain_point || 'No dedicated website'}
+      if (!TWILIO_SID || !TWILIO_TOKEN) return false
 
-Requirements:
-- 150-250 characters (WhatsApp sweet spot, not too long)
-- Start with their business name naturally
-- Mention one specific thing relevant to their category
-- Soft CTA: offer a free website audit or demo
-- Sign off: MAK Software Solutions
-- No emojis unless it feels natural
-- Must feel handwritten, not automated`
-                    }
-                ]
-            })
-        })
+      const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
+      const lookup = await fetch(
+        `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(phone)}?Fields=whatsapp`,
+        {
+          headers: {
+            'Authorization': `Basic ${auth}`
+          }
+        }
+      )
+      
+      if (!lookup.ok) {
+          console.error('[WhatsAppLookup] API error:', await lookup.text())
+          return false // Fail safe - do NOT send if lookup errors
+      }
 
-        const data = await response.json()
-        return data.choices?.[0]?.message?.content || `Hi ${lead.name}! Interested in a free website preview for your business in ${lead.city}? — MAK Software Solutions`
-    } catch (e) {
-        console.error('[WhatsAppPersonalization] AI generation failed:', e)
-        return `Hi ${lead.name}, I noticed your business in ${lead.city} could use a website refresh. Want a free audit? — MAK Software Solutions`
+      const data = await lookup.json()
+      const registered = data?.whatsapp?.registered === true
+  
+      // 3. Write result to cache — always, even if false
+      await (supabase.from('leads') as any).update({
+        whatsapp_registered: registered,
+        whatsapp_checked_at: new Date().toISOString()
+      }).eq('id', leadId)
+  
+      return registered
+    } catch (err) {
+      console.error('[WhatsAppLookup] Fatal execution failure:', err)
+      return false // Fail safe
     }
 }
 
 // ─── Twilio Integration ───────────────────────────────────────────
 
 /**
- * Sends a message via Twilio WhatsApp API
+ * Sends a WhatsApp message via Twilio Content Template API.
+ * This resolves Error 63016 (Session Window violation) for cold leads.
  */
-async function sendWhatsAppViaTwilio(to: string, body: string): Promise<TwilioResponse> {
+async function sendWhatsAppTemplate(to: string, contentSid: string, variables: Record<string, string>): Promise<TwilioResponse> {
     if (!TWILIO_SID || !TWILIO_TOKEN) {
         throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN')
     }
 
-    const fromFormatted = `whatsapp:${(process.env.TWILIO_WHATSAPP_FROM || '+12134600101').replace('whatsapp:', '')}`
-    const toFormatted = `whatsapp:${to.replace('whatsapp:', '')}`
+    // Defensive prefixing: whatsapp:+1...
+    const fromFormatted = `whatsapp:+${TWILIO_WHATSAPP_FROM.replace(/^\+/, '').replace('whatsapp:', '')}`
+    const toFormatted = `whatsapp:+${to.replace(/^\+/, '').replace('whatsapp:', '')}`
 
     const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
     
-    // Twilio expects application/x-www-form-urlencoded
     const params = new URLSearchParams()
     params.append('From', fromFormatted)
     params.append('To', toFormatted)
-    params.append('Body', body)
+    params.append('ContentSid', contentSid)
+    params.append('ContentVariables', JSON.stringify(variables))
 
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
         method: 'POST',
@@ -113,50 +125,68 @@ async function sendWhatsAppViaTwilio(to: string, body: string): Promise<TwilioRe
         body: params.toString()
     })
 
-    return res.json()
+    const data = await res.json()
+    return data as TwilioResponse
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────
 
 /**
- * Personalizes and sends a WhatsApp message to a lead.
- * Logs result to database with intelligent normalization.
+ * Personalizes and sends a template-based WhatsApp outreach.
+ * Resolves Errors 63016 (Templates) and 63024 (Lookup Gating).
  */
 export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
     console.log(`[WhatsAppOutreach] Initializing for ${lead.name} (${lead.phone})`)
     
-    // Step 1: Normalize Number
+    // Step 1: Normalize Number (E.164)
     const normalized = normalizeWhatsAppNumber(lead.phone, lead.city, lead.country || '')
     
     if (!normalized) {
-        console.warn(`[WhatsAppOutreach] Normalization failed for ${lead.phone} (${lead.city}). Marking as unreachable.`)
-        await supabase.from('leads').update({ status: 'unreachable' }).eq('id', lead.id)
-        
-        await supabase.from('outreach_log').insert({
-            lead_id: lead.id,
-            business_name: lead.name,
-            channel: 'whatsapp',
-            send_status: 'failed',
-            failure_reason: 'Invalid or unmappable phone format',
-            original_phone: lead.phone
-        })
-        
+        console.warn(`[WhatsAppOutreach] Normalization failed for ${lead.phone}.`)
+        await (supabase.from('leads') as any).update({ status: 'unreachable' }).eq('id', lead.id)
         return { success: false, error: 'unreachable' }
     }
 
-    // Step 2: Generate Content
-    const body = await generateWhatsAppMessage(lead)
+    // Step 1.2: Placeholder Guard — Skip if template SID is missing (prevent 63016)
+    if (!TEMPLATE_SID) {
+        console.warn(`[WhatsAppOutreach] ABORTED — TWILIO_WHATSAPP_TEMPLATE_SID is not set. Template required for cold outreach.`)
+        return { success: false, error: 'missing_template_sid' }
+    }
 
-    try {
-        // Step 3: Dispatch via Twilio
-        const twilio = await sendWhatsAppViaTwilio(normalized, body)
-
-        // Step 4: Log Results
-        const { error: logErr } = await supabase.from('outreach_log').insert({
+    // Step 2: Hardened Lookup Gate (Wait for confirm) — Resolves 63024
+    const registered = await isOnWhatsApp(normalized, lead.id)
+    if (!registered) {
+        console.warn(`[WhatsAppOutreach] SKIPPED — ${lead.name}: not on WhatsApp (confirmed by v2 Lookup).`)
+        
+        await (supabase.from('outreach_log') as any).insert({
             lead_id: lead.id,
             business_name: lead.name,
-            body: body,
-            subject: 'WhatsApp Outreach',
+            channel: 'whatsapp',
+            send_status: 'skipped',
+            failure_reason: 'not_on_whatsapp',
+            original_phone: lead.phone,
+            normalized_phone: normalized
+        })
+        
+        await (supabase.from('leads') as any).update({ status: 'unreachable' }).eq('id', lead.id)
+        return { success: false, error: 'not_on_whatsapp' }
+    }
+
+    try {
+        // Step 3: Dispatch via Twilio Templates — Resolves 63016
+        const variables = {
+            "1": lead.name,
+            "2": lead.city
+        }
+
+        const twilio = await sendWhatsAppTemplate(normalized, TEMPLATE_SID, variables)
+
+        // Step 4: Log Results
+        await supabase.from('outreach_log').insert({
+            lead_id: lead.id,
+            business_name: lead.name,
+            body: `Template: ${TEMPLATE_SID} | Vars: ${JSON.stringify(variables)}`,
+            subject: 'WhatsApp Outreach (Template)',
             channel: 'whatsapp',
             message_sid: twilio.sid,
             wa_status: twilio.status || 'queued',
@@ -165,26 +195,18 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
             failure_reason: twilio.error_message || null,
             touch_number: 1,
             sequence_status: 'active',
+            variant_used: 'template',
             original_phone: lead.phone,
             normalized_phone: normalized
         })
 
-        if (logErr) console.error('[WhatsAppOutreach] DB Log error:', logErr)
-
-        // Step 5: Update Lead CRM Status
         if (twilio.status !== 'failed') {
             await supabase.from('leads').update({
                 status: 'wa_sent',
                 contacted_at: new Date().toISOString(),
                 contact_method: 'whatsapp',
-                phone: normalized // Persist the normalized number back
+                phone: normalized
             }).eq('id', lead.id)
-        }
-
-        // Handle Twilio Offline error (63007) gracefully
-        if (twilio.error_code === 63007) {
-             console.warn('[WhatsAppOutreach] Twilio Sender is OFFLINE (63007) — logged as failed/pending.')
-             return { success: false, error: 'Sender offline' }
         }
 
         return { success: true, sid: twilio.sid }
