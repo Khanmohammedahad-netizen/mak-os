@@ -1,9 +1,5 @@
-/**
- * WhatsApp Outreach Service
- * Uses Twilio REST API for delivery and OpenRouter for personalization.
- */
-
 import { supabaseAdmin as supabase } from '../supabase-admin'
+import { normalizeWhatsAppNumber } from '@/lib/utils/normalize-phone'
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -13,7 +9,8 @@ interface WhatsAppLead {
     city: string
     country?: string
     phone: string
-    category?: string
+    business_type?: string
+    pain_point?: string
     opportunity_summary?: string
 }
 
@@ -32,44 +29,14 @@ const TWILIO_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+12134600101'
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY
 const MODEL = 'anthropic/claude-3.5-sonnet'
 
-// ─── Phone Formatting (E.164) ─────────────────────────────────────
-
-/**
- * Formats a phone number to E.164, default to US if no country or 10 digits
- */
-export function formatE164(phone: string, country?: string): string {
-    let digits = phone.replace(/\D/g, '')
-    
-    // GCC Country Codes
-    const gcc: Record<string, string> = {
-        'UAE': '971',
-        'Saudi Arabia': '966',
-        'Kuwait': '965',
-        'Qatar': '974',
-        'Bahrain': '973',
-        'Oman': '968'
-    }
-
-    if (country && gcc[country]) {
-        if (!digits.startsWith(gcc[country])) {
-            digits = gcc[country] + digits
-        }
-    } else if (digits.length === 10) {
-        // Assume US if 10 digits
-        digits = '1' + digits
-    }
-
-    return `+${digits}`
-}
-
 // ─── AI Message Generation ────────────────────────────────────────
 
 /**
- * Uses OpenRouter to generate a personalized WhatsApp message
+ * Uses OpenRouter to generate a high-quality personalized WhatsApp message
  */
 async function generateWhatsAppMessage(lead: WhatsAppLead): Promise<string> {
     if (!OPENROUTER_KEY) {
-        return `Hi! I was looking up ${lead.category || 'local businesses'} in ${lead.city} and came across ${lead.name}.\n\nI noticed you don't have a dedicated website yet — I put together a quick free preview of what one could look like for you.\n\nWant me to send the link? No pressure at all.\n\n— MAK Software Solutions`
+        return `Hi ${lead.name}! I noticed your business in ${lead.city} and wanted to reach out. I put together a quick free preview of what a new website could look like for you. Want me to send the link? No pressure. — MAK Software Solutions`
     }
 
     try {
@@ -86,27 +53,31 @@ async function generateWhatsAppMessage(lead: WhatsAppLead): Promise<string> {
                 messages: [
                     {
                         role: 'system',
-                        content: `You are a friendly, direct web developer from MAK Software Solutions. 
-                                  Generate a personalized WhatsApp outreach message for a local business.
-                                  Constraints:
-                                  - Max 300 characters.
-                                  - Tone: Friendly, direct, not salesy.
-                                  - Mention the business name and city.
-                                  - End with soft CTA: "Want a free website audit?".
-                                  - Sign off as: MAK Software Solutions.`
+                        content: `You are an outreach specialist for MAK Software Solutions, a premium software and AI agency based in Hyderabad serving businesses globally. Write a WhatsApp message to a business owner. Be conversational, warm, and specific to their business. Never sound like a bot or mass mailer.`
                     },
                     {
                         role: 'user',
-                        content: `Business: ${lead.name}
-                                  City: ${lead.city}
-                                  Issue: ${lead.opportunity_summary || 'No dedicated website'}`
+                        content: `Write a WhatsApp outreach message for:
+- Business: ${lead.name}
+- City: ${lead.city}, ${lead.country || 'Unknown'}
+- Category: ${lead.business_type || lead.opportunity_summary || 'Business'}
+- Their likely pain point: ${lead.pain_point || 'No dedicated website'}
+
+Requirements:
+- 150-250 characters (WhatsApp sweet spot, not too long)
+- Start with their business name naturally
+- Mention one specific thing relevant to their category
+- Soft CTA: offer a free website audit or demo
+- Sign off: MAK Software Solutions
+- No emojis unless it feels natural
+- Must feel handwritten, not automated`
                     }
                 ]
             })
         })
 
         const data = await response.json()
-        return data.choices?.[0]?.message?.content || 'Hi! Interested in a free website preview for ' + lead.name + '?'
+        return data.choices?.[0]?.message?.content || `Hi ${lead.name}! Interested in a free website preview for your business in ${lead.city}? — MAK Software Solutions`
     } catch (e) {
         console.error('[WhatsAppPersonalization] AI generation failed:', e)
         return `Hi ${lead.name}, I noticed your business in ${lead.city} could use a website refresh. Want a free audit? — MAK Software Solutions`
@@ -147,18 +118,38 @@ async function sendWhatsAppViaTwilio(to: string, body: string): Promise<TwilioRe
 
 /**
  * Personalizes and sends a WhatsApp message to a lead.
- * Logs result to database.
+ * Logs result to database with intelligent normalization.
  */
 export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
     console.log(`[WhatsAppOutreach] Initializing for ${lead.name} (${lead.phone})`)
     
-    const formattedPhone = formatE164(lead.phone, lead.country)
+    // Step 1: Normalize Number
+    const normalized = normalizeWhatsAppNumber(lead.phone, lead.city, lead.country || '')
+    
+    if (!normalized) {
+        console.warn(`[WhatsAppOutreach] Normalization failed for ${lead.phone} (${lead.city}). Marking as unreachable.`)
+        await supabase.from('leads').update({ status: 'unreachable' }).eq('id', lead.id)
+        
+        await supabase.from('outreach_log').insert({
+            lead_id: lead.id,
+            business_name: lead.name,
+            channel: 'whatsapp',
+            send_status: 'failed',
+            failure_reason: 'Invalid or unmappable phone format',
+            original_phone: lead.phone
+        })
+        
+        return { success: false, error: 'unreachable' }
+    }
+
+    // Step 2: Generate Content
     const body = await generateWhatsAppMessage(lead)
 
     try {
-        const twilio = await sendWhatsAppViaTwilio(formattedPhone, body)
+        // Step 3: Dispatch via Twilio
+        const twilio = await sendWhatsAppViaTwilio(normalized, body)
 
-        // Log results (handles status tracking)
+        // Step 4: Log Results
         const { error: logErr } = await supabase.from('outreach_log').insert({
             lead_id: lead.id,
             business_name: lead.name,
@@ -171,17 +162,22 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
             sent_at: new Date().toISOString(),
             failure_reason: twilio.error_message || null,
             touch_number: 1,
-            sequence_status: 'active'
+            sequence_status: 'active',
+            original_phone: lead.phone,
+            normalized_phone: normalized
         })
 
         if (logErr) console.error('[WhatsAppOutreach] DB Log error:', logErr)
 
-        // Update lead status in CRM
-        await supabase.from('leads').update({
-            status: 'contacted',
-            contacted_at: new Date().toISOString(),
-            contact_method: 'whatsapp'
-        }).eq('id', lead.id)
+        // Step 5: Update Lead CRM Status
+        if (twilio.status !== 'failed') {
+            await supabase.from('leads').update({
+                status: 'wa_sent',
+                contacted_at: new Date().toISOString(),
+                contact_method: 'whatsapp',
+                phone: normalized // Persist the normalized number back
+            }).eq('id', lead.id)
+        }
 
         // Handle Twilio Offline error (63007) gracefully
         if (twilio.error_code === 63007) {
@@ -194,15 +190,16 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
     } catch (e: any) {
         console.error('[WhatsAppOutreach] Fatal failure:', e)
         
-        const { error: finalLogErr } = await supabase.from('outreach_log').insert({
+        await supabase.from('outreach_log').insert({
             lead_id: lead.id,
             business_name: lead.name,
             channel: 'whatsapp',
             send_status: 'failed',
             failure_reason: e.message,
+            original_phone: lead.phone,
+            normalized_phone: normalized,
             touch_number: 1
         })
-        if (finalLogErr) console.error('[WhatsAppOutreach] Final log error:', finalLogErr)
 
         return { success: false, error: e.message }
     }

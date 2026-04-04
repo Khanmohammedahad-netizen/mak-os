@@ -591,8 +591,8 @@ export async function runOutreachPipeline(
                         city: lead.city || city,
                         country: lead.country || undefined,
                         phone: lead.phone!,
-                        category: lead.category || undefined,
-                        opportunity_summary: lead.opportunitySummary
+                        business_type: lead.category || undefined,
+                        pain_point: lead.opportunitySummary
                     })
 
                     if (waResult.success) {
