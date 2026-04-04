@@ -25,7 +25,6 @@ interface TwilioResponse {
 
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
-const TWILIO_FROM = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+12134600101'
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY
 const MODEL = 'anthropic/claude-3.5-sonnet'
 
@@ -94,12 +93,15 @@ async function sendWhatsAppViaTwilio(to: string, body: string): Promise<TwilioRe
         throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN')
     }
 
+    const fromFormatted = `whatsapp:${(process.env.TWILIO_WHATSAPP_FROM || '+12134600101').replace('whatsapp:', '')}`
+    const toFormatted = `whatsapp:${to.replace('whatsapp:', '')}`
+
     const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
     
     // Twilio expects application/x-www-form-urlencoded
     const params = new URLSearchParams()
-    params.append('From', TWILIO_FROM)
-    params.append('To', `whatsapp:${to}`)
+    params.append('From', fromFormatted)
+    params.append('To', toFormatted)
     params.append('Body', body)
 
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
