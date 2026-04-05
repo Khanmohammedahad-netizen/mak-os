@@ -11,8 +11,6 @@ export interface OutreachEmailOptions {
 
 /**
  * Email Service — Brevo only (raw fetch, no SDK, no Zoho fallback)
- * ALL env vars are read inside the function at call time.
- * No module-level env reads — avoids any Render/Next.js timing issues.
  */
 export async function sendOutreachEmail(options: OutreachEmailOptions): Promise<{
     success: boolean
@@ -20,30 +18,22 @@ export async function sendOutreachEmail(options: OutreachEmailOptions): Promise<
     error?: string
     provider: 'brevo'
 }> {
-    // ── Read ALL env vars inline here, never at module load ──────────
     const apiKey    = process.env.BREVO_API_KEY
     const fromEmail = options.fromEmail || process.env.OUTREACH_FROM_EMAIL
     const fromName  = options.fromName  || process.env.OUTREACH_FROM_NAME || 'MAK Software'
 
-    // ── Startup diagnostic printed on each send attempt ──────────────
-    console.log('[EmailService] Env check at send time:')
-    console.log('  BREVO_API_KEY:',       apiKey    ? 'SET ✓ (' + apiKey.substring(0, 12) + '...)' : 'MISSING ✗')
-    console.log('  OUTREACH_FROM_EMAIL:', fromEmail || 'MISSING ✗')
-    console.log('  OUTREACH_FROM_NAME:',  fromName)
-
     if (!apiKey) {
-        const err = '[EmailService] BREVO_API_KEY is not set'
-        console.error(err)
-        return { success: false, error: err, provider: 'brevo' }
+        console.error('[Email] SKIPPED — Reason: BREVO_API_KEY not set')
+        return { success: false, error: 'BREVO_API_KEY not set', provider: 'brevo' }
     }
 
     if (!fromEmail) {
-        const err = '[EmailService] OUTREACH_FROM_EMAIL is not set — set it in Render environment variables.'
-        console.error(err)
-        return { success: false, error: err, provider: 'brevo' }
+        console.error('[Email] SKIPPED — Reason: OUTREACH_FROM_EMAIL not set')
+        return { success: false, error: 'OUTREACH_FROM_EMAIL not set', provider: 'brevo' }
     }
 
-    console.log(`[EmailService] Sending via Brevo → to: ${options.to} | from: ${fromEmail}`)
+    // Diagnostic Log
+    console.log(`[Email] Attempting send to ${options.to} for business_name placeholder`)
 
     try {
         const response = await fetch(BREVO_API_URL, {
@@ -64,18 +54,16 @@ export async function sendOutreachEmail(options: OutreachEmailOptions): Promise<
 
         if (!response.ok) {
             const errorBody = await response.text()
-            const err = `[EmailService] Brevo API error ${response.status}: ${errorBody}`
-            console.error(err)
-            return { success: false, error: err, provider: 'brevo' }
+            console.error(`[Email] FAILED — Reason: ${response.status} ${errorBody}`)
+            return { success: false, error: errorBody, provider: 'brevo' }
         }
 
         const data = await response.json()
-        console.log(`[EmailService] ✓ Sent to ${options.to} via Brevo — MessageID: ${data.messageId}`)
+        console.log(`[Email] SUCCESS — Message ID: ${data.messageId}`)
         return { success: true, messageId: data.messageId, provider: 'brevo' }
 
     } catch (err: any) {
-        const msg = `[EmailService] Brevo fetch exception: ${err.message}`
-        console.error(msg)
-        return { success: false, error: msg, provider: 'brevo' }
+        console.error(`[Email] FAILED — Reason: ${err.message}`)
+        return { success: false, error: err.message, provider: 'brevo' }
     }
 }
