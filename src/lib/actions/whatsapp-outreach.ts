@@ -37,12 +37,17 @@ async function isOnWhatsApp(phone: string, leadId: string): Promise<boolean> {
       .eq('id', leadId)
       .single()
   
-    if (cached?.whatsapp_checked_at && cached?.whatsapp_registered !== null) {
+    // If already checked, use cached value
+    if (cached?.whatsapp_checked_at) {
       return cached.whatsapp_registered === true
     }
   
     try {
-      if (!TWILIO_SID || !TWILIO_TOKEN) return false
+      if (!TWILIO_SID || !TWILIO_TOKEN) {
+          console.warn('[WhatsApp] No Twilio credentials — allowing send as fallback')
+          return true
+      }
+      
       const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
       const lookup = await fetch(
         `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(phone)}?Fields=whatsapp`,
@@ -61,8 +66,8 @@ async function isOnWhatsApp(phone: string, leadId: string): Promise<boolean> {
   
       return registered
     } catch (err) {
-      console.error('[WhatsApp] Lookup FAILED — Reason:', err)
-      return false
+      console.error('[WhatsApp] Lookup FAILED — allowing send as fallback. Reason:', err)
+      return true // FIX 2: Default to ALLOW send on failure
     }
 }
 

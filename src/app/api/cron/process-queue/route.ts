@@ -30,10 +30,12 @@ export async function GET(request: NextRequest) {
         console.log(`[PulseCron] Processing: ${lead.company} (ID: ${lead.id})`)
 
         // 2. Decide Channel (Email vs WhatsApp)
-        // If email exists and not already contacted, try email. 
-        // If email is missing OR email failed OR status is 'contacted' (from email), tray WhatsApp if phone exists.
+        // Email: has email and status is new
+        // WhatsApp: has phone, status is new, and (wa_reg is true OR wa_checked is null)
         const canEmail = lead.email && lead.status === 'new'
-        const canWhatsApp = lead.phone && (lead.status === 'new' || lead.status === 'contacted')
+        const canWhatsApp = lead.phone && 
+            lead.status === 'new' && 
+            (lead.whatsapp_registered === true || lead.whatsapp_checked_at === null)
 
         if (canEmail) {
             // ... (existing email logic)

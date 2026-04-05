@@ -187,6 +187,37 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
         }
     }
 
+    // ─── Send WhatsApp to a lead ──────────────────────────────────
+    const handleSendWhatsApp = async (leadId: string) => {
+        setActionLoading((prev) => ({ ...prev, [leadId]: 'whatsapp' }))
+        try {
+            const res = await fetch('/api/leads/whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ leadId }),
+            })
+            const data = await res.json()
+            if (data.success) {
+                setLeads((prev) =>
+                    prev.map((l) =>
+                        l.id === leadId ? { ...l, status: 'wa_sent' } : l
+                    )
+                )
+            } else {
+                alert(data.error || 'WhatsApp failed')
+            }
+        } catch (err) {
+            console.error('WhatsApp error:', err)
+            alert('WhatsApp failed. Check console.')
+        } finally {
+            setActionLoading((prev) => {
+                const next = { ...prev }
+                delete next[leadId]
+                return next
+            })
+        }
+    }
+
     // ─── Status badge color helper ────────────────────────────────
     const statusStyle = (status: string) => {
         switch (status) {
@@ -331,6 +362,15 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                             {loading === 'enriching' ? '⏳ Working' : '🔍 Enrich'}
                                         </button>
                                     )}
+                                    {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && (
+                                        <button
+                                            onClick={() => handleSendWhatsApp(lead.id)}
+                                            disabled={!!loading}
+                                            className="touch-target flex-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                                        >
+                                            {loading === 'whatsapp' ? '⏳ Sending' : '📲 WhatsApp'}
+                                        </button>
+                                    )}
                                     {lead.phone && !['contacted', 'wa_sent'].includes(lead.status) && (
                                         <button
                                             onClick={() => handleOpenCallModal(lead)}
@@ -419,6 +459,17 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                         className="text-xs px-3 py-1.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition disabled:opacity-50"
                                                     >
                                                         {loading === 'enriching' ? '⏳ Working...' : '🔍 Enrich'}
+                                                    </button>
+                                                )}
+
+                                                {/* Send WhatsApp button */}
+                                                {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && (
+                                                    <button
+                                                        onClick={() => handleSendWhatsApp(lead.id)}
+                                                        disabled={!!loading}
+                                                        className="text-xs px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50"
+                                                    >
+                                                        {loading === 'whatsapp' ? '⏳ Sending...' : '📲 Send WhatsApp'}
                                                     </button>
                                                 )}
 
