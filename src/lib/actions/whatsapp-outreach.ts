@@ -7,10 +7,11 @@ const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM || '+12134600101'
 const TEMPLATE_SID = process.env.TWILIO_WHATSAPP_TEMPLATE_SID || 'HX279eba9368bd098f04577ddb043d9637'
 
+// STEP 1: Exact startup log requested by user
+console.log('[WhatsApp] TEMPLATE_SID loaded:', process.env.TWILIO_WHATSAPP_TEMPLATE_SID ?? 'MISSING')
 console.log(`[WhatsApp] Startup — SID: ${TWILIO_SID ? TWILIO_SID.substring(0, 6) + '...' : 'MISSING'}`)
 console.log(`[WhatsApp] Startup — AUTH_TOKEN: ${TWILIO_TOKEN ? 'SET ✓' : 'MISSING ✗'}`)
 console.log(`[WhatsApp] Startup — FROM: ${TWILIO_WHATSAPP_FROM}`)
-console.log(`[WhatsApp] Startup — TEMPLATE_SID: ${TEMPLATE_SID}`)
 
 interface WhatsAppLead {
     id: string
@@ -68,8 +69,12 @@ async function isOnWhatsApp(phone: string, leadId: string): Promise<boolean> {
 async function sendWhatsAppTemplate(to: string, contentSid: string, variables: Record<string, string>): Promise<TwilioResponse> {
     if (!TWILIO_SID || !TWILIO_TOKEN) throw new Error('Missing credentials')
 
+    // STEP 3: LOG the from/to fields BEFORE sending
     const fromPrefixed = `whatsapp:+${TWILIO_WHATSAPP_FROM.replace(/^\+/, '').replace('whatsapp:', '')}`
     const toPrefixed = `whatsapp:+${to.replace(/^\+/, '').replace('whatsapp:', '')}`
+    
+    console.log('[WhatsApp] to field:', toPrefixed)
+
     const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
     
     const params = new URLSearchParams()
@@ -77,6 +82,7 @@ async function sendWhatsAppTemplate(to: string, contentSid: string, variables: R
     params.append('To', toPrefixed)
     params.append('ContentSid', contentSid)
     params.append('ContentVariables', JSON.stringify(variables))
+    // CRITICAL: NO 'Body' parameter appended here
 
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
         method: 'POST',
@@ -126,3 +132,4 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
         return { success: false, error: e.message }
     }
 }
+

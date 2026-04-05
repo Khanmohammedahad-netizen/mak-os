@@ -42,10 +42,19 @@ export function normalizeWhatsAppNumber(phone: string, city: string, country: st
   // Step 2: Strip everything except digits from the raw phone
   const digitsOnly = phone.replace(/\D/g, '')
 
-  // Step 3: Remove any leading country code if already present
-  // Intelligently strip local number (typically 9-10 digits)
-  // For GCC, local numbers are often 9 digits (e.g. 50 123 4567)
-  const localNumber = digitsOnly.slice(-9)
+  // Step 3: Remove any leading country code and get local number
+  // GCC local numbers: 
+  // - UAE/Saudi: 9 digits (e.g. 50 123 4567)
+  // - Qatar/Kuwait/Oman/Bahrain: 8 digits (e.g. 3333 4444)
+  
+  let localNumber = digitsOnly
+  if (digitsOnly.startsWith(correctCode)) {
+    localNumber = digitsOnly.slice(correctCode.length)
+  }
+  
+  // If still too long, take the last 9 (for UAE/Saudi) or 8 (others)
+  const isNineDigitCountry = ['971', '966'].includes(correctCode)
+  localNumber = localNumber.slice(isNineDigitCountry ? -9 : -8)
 
   // Step 4: Reconstruct in E.164 format
   const normalized = `+${correctCode}${localNumber}`
