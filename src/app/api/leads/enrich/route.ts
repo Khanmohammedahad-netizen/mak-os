@@ -37,74 +37,71 @@ export async function POST(request: Request) {
             )
         }
 
-        // --- Helper: Fallback to WhatsApp if Email fails/unavailable ---
-        async function attemptWhatsAppFallback() {
-            if (lead.phone) {
-                const waResult = await triggerWhatsAppOutreach({
-                    id: lead.id,
-                    name: lead.company,
-                    city: lead.city || 'Dubai',
-                    country: lead.country || undefined,
-                    phone: lead.phone,
-                    business_type: lead.category || undefined,
-                    pain_point: lead.opportunity_summary || undefined
-                })
-
-                if (waResult.success) {
-                    return { success: true, status: 'wa_sent', message: 'WhatsApp outreach triggered.' }
-                } else if (waResult.error === 'unreachable') {
-                    await supabase.from('leads').update({ status: 'unreachable' }).eq('id', leadId)
-                    return { success: false, status: 'unreachable', message: 'Phone number could not be normalized.' }
-                }
+        // 2. Run Contact Information Search
+        let enrichedEmail: string | null = null
+        if (lead.website) {
+            const results = await enrichContacts([lead.website])
+            if (results.length > 0 && results[0].emails.length > 0) {
+                enrichedEmail = results[0].emails[0]
             }
-            
-            const fallbackStatus = lead.phone ? 'unreachable' : 'no_email'
-            await supabase.from('leads').update({ status: fallbackStatus }).eq('id', leadId)
-            return { success: false, status: fallbackStatus, message: 'Contact info search yielded no results.' }
-        }
-
-        // 2. If lead has no website, try a Google search URL as fallback first
-        if (!lead.website) {
+        } else {
             const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(lead.company)}`
             console.log(`[Enrich] No website for "${lead.company}", trying Google search fallback`)
-
             const results = await enrichContacts([searchUrl])
-
             if (results.length > 0 && results[0].emails.length > 0) {
-                await supabase.from('leads').update({
-                    email: results[0].emails[0],
-                    status: 'enriched',
-                }).eq('id', leadId)
-
-                return NextResponse.json({
-                    success: true,
-                    enriched: { email: results[0].emails[0] }
-                })
+                enrichedEmail = results[0].emails[0]
             }
-
-            // Fallback to WhatsApp
-            const fallback = await attemptWhatsAppFallback()
-            return NextResponse.json(fallback)
         }
 
-        // 3. Scrape the business website for contact info
-        const results = await enrichContacts([lead.website])
-
-        if (results.length > 0 && results[0].emails.length > 0) {
+        // 3. Update DB if email found
+        if (enrichedEmail) {
             await supabase.from('leads').update({
-                email: results[0].emails[0],
+                email: enrichedEmail,
                 status: 'enriched',
             }).eq('id', leadId)
+        }
 
+        // 4. Always attempt WhatsApp outreach if phone available
+        if (lead.phone) {
+            console.log(`[Enrich] Triggering WhatsApp for ${lead.company} (${lead.phone})`)
+            const waResult = await triggerWhatsAppOutreach({
+                id: lead.id,
+                name: lead.company,
+                city: lead.city || 'Dubai',
+                country: lead.country || undefined,
+                phone: lead.phone,
+                business_type: lead.category || undefined,
+                pain_point: lead.opportunity_summary || undefined
+            }, true) // BYPASS registration check for manual click
+
+            if (waResult.success) {
+                // If WA sent, mark as wa_sent (even if email was found, WA is more immediate)
+                await supabase.from('leads').update({ status: 'wa_sent' }).eq('id', leadId)
+                return NextResponse.json({
+                    success: true,
+                    status: 'wa_sent',
+                    enriched: { email: enrichedEmail },
+                    message: 'WhatsApp outreach triggered.'
+                })
+            }
+        }
+
+        // 5. Final fallback if No WhatsApp and No Email
+        if (enrichedEmail) {
             return NextResponse.json({
                 success: true,
-                enriched: { email: results[0].emails[0] }
+                status: 'enriched',
+                enriched: { email: enrichedEmail }
             })
         }
 
-        // 4. Final Fallback if website scrape yielded no email
-        const finalFallback = await attemptWhatsAppFallback()
-        return NextResponse.json(finalFallback)
+        const fallbackStatus = lead.phone ? 'unreachable' : 'no_email'
+        await supabase.from('leads').update({ status: fallbackStatus }).eq('id', leadId)
+        return NextResponse.json({ 
+            success: false, 
+            status: fallbackStatus, 
+            message: 'Contact info search yielded no results.' 
+        })
 
     } catch (err: any) {
         console.error('[Enrich] API Fatal Error:', err)

@@ -72,13 +72,12 @@ async function isOnWhatsApp(phone: string, leadId: string): Promise<boolean> {
 }
 
 async function sendWhatsAppTemplate(to: string, contentSid: string, variables: Record<string, string>): Promise<TwilioResponse> {
-    if (!TWILIO_SID || !TWILIO_TOKEN) throw new Error('Missing credentials')
+    if (!TWILIO_SID || !TWILIO_TOKEN) throw new Error('Missing Twilio credentials in environment variables')
 
-    // STEP 3: LOG the from/to fields BEFORE sending
     const fromPrefixed = `whatsapp:+${TWILIO_WHATSAPP_FROM.replace(/^\+/, '').replace('whatsapp:', '')}`
     const toPrefixed = `whatsapp:+${to.replace(/^\+/, '').replace('whatsapp:', '')}`
     
-    console.log('[WhatsApp] to field:', toPrefixed)
+    console.log(`[WhatsApp] Sending from ${fromPrefixed} to ${toPrefixed}`)
 
     const auth = Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')
     
@@ -87,7 +86,6 @@ async function sendWhatsAppTemplate(to: string, contentSid: string, variables: R
     params.append('To', toPrefixed)
     params.append('ContentSid', contentSid)
     params.append('ContentVariables', JSON.stringify(variables))
-    // CRITICAL: NO 'Body' parameter appended here
 
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
         method: 'POST',
@@ -98,25 +96,49 @@ async function sendWhatsAppTemplate(to: string, contentSid: string, variables: R
         body: params.toString()
     })
 
-    return res.json()
+    const data = await res.json()
+    
+    if (!res.ok) {
+        console.error(`[WhatsApp] Twilio API Error (${res.status}):`, data)
+        return {
+            sid: data.sid || '',
+            status: 'failed',
+            error_code: data.code,
+            error_message: data.message || res.statusText
+        }
+    }
+
+    return data
 }
 
-export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
+export async function triggerWhatsAppOutreach(lead: WhatsAppLead, bypassRegistration: boolean = false) {
+    // 1. Validate Credentials
+    if (!TWILIO_SID || !TWILIO_TOKEN) {
+        console.error('[WhatsApp] ABORTED — Reason: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN not set')
+        return { success: false, error: 'missing_credentials' }
+    }
+
     if (!TEMPLATE_SID) {
-        console.error('[WhatsApp] SKIPPED — Reason: TEMPLATE_SID not set')
+        console.error('[WhatsApp] ABORTED — Reason: TWILIO_WHATSAPP_TEMPLATE_SID not set')
         return { success: false, error: 'missing_template_sid' }
     }
 
+    // 2. Normalize and Validate Number
     const normalized = normalizeWhatsAppNumber(lead.phone, lead.city, lead.country || '')
     if (!normalized) {
         console.error(`[WhatsApp] SKIPPED — Reason: Normalization failed for ${lead.phone}`)
         return { success: false, error: 'unreachable' }
     }
 
-    const registered = await isOnWhatsApp(normalized, lead.id)
-    if (!registered) {
-        console.warn(`[WhatsApp] SKIPPED — Reason: Not on WhatsApp for ${normalized}`)
-        return { success: false, error: 'not_on_whatsapp' }
+    // 3. Verify Registration (skip if bypassed)
+    if (!bypassRegistration) {
+        const registered = await isOnWhatsApp(normalized, lead.id)
+        if (!registered) {
+            console.warn(`[WhatsApp] SKIPPED — Reason: Not on WhatsApp for ${normalized}`)
+            return { success: false, error: 'not_on_whatsapp' }
+        }
+    } else {
+        console.log(`[WhatsApp] BYPASSING registration check for ${normalized}`)
     }
 
     console.log(`[WhatsApp] Attempting send — Template: ${TEMPLATE_SID}, To: ${normalized}`)
@@ -126,14 +148,14 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead) {
         const twilio = await sendWhatsAppTemplate(normalized, TEMPLATE_SID, variables)
 
         if (twilio.error_code) {
-            console.error(`[WhatsApp] FAILED — Twilio Error: ${twilio.error_code} ${twilio.error_message}`)
-            return { success: false, error: twilio.error_message }
+            console.error(`[WhatsApp] FAILED — Twilio Error Code ${twilio.error_code}: ${twilio.error_message}`)
+            return { success: false, error: twilio.error_message, errorCode: twilio.error_code }
         }
 
-        console.log(`[WhatsApp] SUCCESS — Twilio SID: ${twilio.sid}`)
+        console.log(`[WhatsApp] SUCCESS — SID: ${twilio.sid}, Status: ${twilio.status}`)
         return { success: true, sid: twilio.sid }
     } catch (e: any) {
-        console.error(`[WhatsApp] FAILED — Reason: ${e.message}`)
+        console.error(`[WhatsApp] CRITICAL FAILURE — Reason: ${e.message}`)
         return { success: false, error: e.message }
     }
 }

@@ -4,6 +4,14 @@
  */
 
 export function normalizeWhatsAppNumber(phone: string, city: string, country: string): string | null {
+  // Step 0: E.164 Pass-through (TRUST if starts with + and has 10-15 digits)
+  if (phone.startsWith('+')) {
+    const digitsOnly = phone.replace(/\D/g, '')
+    if (digitsOnly.length >= 10 && digitsOnly.length <= 15) {
+      return `+${digitsOnly}`
+    }
+  }
+
   // Country code map
   const countryCodeMap: Record<string, string> = {
     // GCC
@@ -38,28 +46,30 @@ export function normalizeWhatsAppNumber(phone: string, city: string, country: st
   
   const correctCode = countryCodeMap[lookupCity] || countryCodeMap[lookupCountry] || null
   if (!correctCode) return null // unknown region, skip
-
+  
   // Step 2: Strip everything except digits from the raw phone
   const digitsOnly = phone.replace(/\D/g, '')
 
   // Step 3: Remove any leading country code and get local number
-  // GCC local numbers: 
-  // - UAE/Saudi: 9 digits (e.g. 50 123 4567)
-  // - Qatar/Kuwait/Oman/Bahrain: 8 digits (e.g. 3333 4444)
-  
   let localNumber = digitsOnly
   if (digitsOnly.startsWith(correctCode)) {
     localNumber = digitsOnly.slice(correctCode.length)
   }
   
-  // If still too long, take the last 9 (for UAE/Saudi) or 8 (others)
-  const isNineDigitCountry = ['971', '966'].includes(correctCode)
-  localNumber = localNumber.slice(isNineDigitCountry ? -9 : -8)
+  // Step 4: Truncate based on regional rules
+  // - UAE/Saudi: 9 digits (e.g. 50 123 4567)
+  // - India: 10 digits
+  // - Others: 8 digits
+  const countryDigits: Record<string, number> = {
+    '971': 9, '966': 9, '91': 10
+  }
+  const takeDigits = countryDigits[correctCode] || 8
+  localNumber = localNumber.slice(-takeDigits)
 
-  // Step 4: Reconstruct in E.164 format
+  // Step 5: Reconstruct in E.164 format
   const normalized = `+${correctCode}${localNumber}`
 
-  // Step 5: Basic sanity check — must be 10-15 digits total
+  // Step 6: Basic sanity check — must be 10-15 digits total
   const totalDigits = normalized.replace(/\D/g, '').length
   if (totalDigits < 10 || totalDigits > 15) return null
 

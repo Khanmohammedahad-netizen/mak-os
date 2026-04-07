@@ -227,11 +227,10 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 return 'bg-blue-100 text-blue-800 border-blue-200'
             case 'contacted':
             case 'emailed':
+            case 'wa_sent':
                 return 'bg-green-100 text-green-800 border-green-200'
             case 'phone_required':
                 return 'bg-orange-100 text-orange-800 border-orange-200'
-            case 'wa_sent':
-                return 'bg-emerald-100 text-emerald-800 border-emerald-200'
             case 'no_email':
             case 'bad_data':
                 return 'bg-red-50 text-red-700 border-red-100'
@@ -334,7 +333,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                         <p className="text-sm text-gray-500">{lead.city || 'Unknown City'}</p>
                                     </div>
                                     <span className={`px-2 py-1 flex-shrink-0 rounded-full text-xs font-medium border ${statusStyle(lead.status)}`}>
-                                        {lead.status}
+                                        {lead.status === 'wa_sent' ? 'contacted (wa)' : lead.status}
                                     </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 mt-1">
@@ -441,7 +440,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                         </td>
                                         <td className="p-4 text-sm">
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium border ${statusStyle(lead.status)}`}>
-                                                {lead.status}
+                                                {lead.status === 'wa_sent' ? 'contacted (wa)' : lead.status}
                                             </span>
                                         </td>
                                         <td className="p-4 text-sm text-gray-500">
@@ -474,7 +473,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                 )}
 
                                                 {lead.status === 'wa_sent' && (
-                                                    <span className="text-xs px-3 py-1.5 text-emerald-600">📲 WhatsApp Sent</span>
+                                                    <span className="text-xs px-3 py-1.5 text-emerald-600 font-semibold">✅ Contacted (WA)</span>
                                                 )}
                                                 
                                                 {lead.status === 'bad_data' && (

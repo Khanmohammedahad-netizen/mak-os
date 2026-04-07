@@ -6,44 +6,61 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
     try {
-        // 1. Pick ONE lead with a GCC phone number
-        // (Prioritizing Dubai/UAE/Saudi for testing)
-        const { data: lead, error: fetchErr } = await supabase
-            .from('leads')
-            .select('*')
-            .not('phone', 'is', null)
-            .or('city.ilike.%dubai%,city.ilike.%abu dhabi%,city.ilike.%riyadh%')
-            .limit(1)
-            .single()
+        const { searchParams } = new URL(request.url)
+        const manualTo = searchParams.get('to')
+        const manualName = searchParams.get('name') || 'Test User'
 
-        if (fetchErr || !lead) {
-            return NextResponse.json({ 
-                status: 'error', 
-                message: 'No suitable GCC lead found for testing. Ensure you have leads with phone numbers and GCC cities in Supabase.' 
-            }, { status: 404 })
+        let leadId = 'test-manual'
+        let leadPhone = manualTo
+        let leadName = manualName
+        let leadCity = 'Test City'
+
+        if (!manualTo) {
+            // 1. Pick ONE lead with a GCC phone number if no manual 'to' is provided
+            const { data: lead, error: fetchErr } = await supabase
+                .from('leads')
+                .select('*')
+                .not('phone', 'is', null)
+                .or('city.ilike.%dubai%,city.ilike.%abu dhabi%,city.ilike.%riyadh%')
+                .limit(1)
+                .single()
+
+            if (fetchErr || !lead) {
+                return NextResponse.json({ 
+                    status: 'error', 
+                    message: 'No suitable GCC lead found for testing and no "?to=" parameter provided. Ensure you have leads in Supabase or provide a test number.' 
+                }, { status: 404 })
+            }
+            leadId = lead.id
+            leadPhone = lead.phone
+            leadName = lead.company
+            leadCity = lead.city || 'your area'
         }
 
-        console.log(`[WhatsApp Test] Triggering for: ${lead.company} (${lead.phone})`)
+        console.log(`[WhatsApp Test] Triggering for: ${leadName} (${leadPhone})`)
 
         // 2. Attempt outreach
         const result = await triggerWhatsAppOutreach({
-            id: lead.id,
-            name: lead.company,
-            city: lead.city || 'your area',
-            phone: lead.phone
-        })
+            id: leadId,
+            name: leadName,
+            city: leadCity,
+            phone: leadPhone!
+        }, !!manualTo) // Bypass registration check if manually testing
 
         // 3. Return full result for debugging
         return NextResponse.json({
             success: result.success,
-            lead: {
-                id: lead.id,
-                name: lead.company,
-                phone: lead.phone,
-                city: lead.city
+            target: {
+                id: leadId,
+                name: leadName,
+                phone: leadPhone,
+                city: leadCity
             },
-            twilioResponse: result,
-            templateSid: process.env.TWILIO_WHATSAPP_TEMPLATE_SID || 'MISSING'
+            outreachResult: result,
+            config: {
+                from: process.env.TWILIO_WHATSAPP_FROM,
+                templateSid: process.env.TWILIO_WHATSAPP_TEMPLATE_SID || 'MISSING'
+            }
         })
 
     } catch (err: any) {
