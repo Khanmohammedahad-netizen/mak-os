@@ -112,19 +112,32 @@ export async function POST(request: Request) {
                         const { supabaseAdmin } = await import('@/lib/supabase-admin')
 
                         const parsed = parseTaskInput(description)
-                        const { categories, city: region } = parsed
+                        const { categories, city: region, filter, error } = parsed
+
+                        if (error || categories.length === 0) {
+                            send({ type: 'log', message: `[TaskParser] Clarification needed: ${error || 'Please specify search.'}` })
+                            send({ type: 'done', payload: { 
+                                type: 'stats', 
+                                title: 'Clarification Needed', 
+                                metrics: [{ label: 'Status', value: 'Retrying...' }],
+                                message: error || 'Please use format: "[business type] in [city]"'
+                            } })
+                            return
+                        }
 
                         send({ type: 'log', message: `Task submitted: "${description}"` })
                         send({ type: 'log', message: `Workflow detected: ${workflow.name}` })
-                        send({ type: 'log', message: `[TaskParser] City: "${region}", Categories: ${categories.join(', ')}` })
+                        send({ type: 'log', message: `[TaskParser] City: "${region}", Category: "${categories[0]}"${filter ? `, Filter: "${filter}"` : ''}` })
 
                         const outreachResult = await runOutreachPipeline(
-                            categories, region, supabaseAdmin, {
+                            categories, region!, supabaseAdmin, {
                             maxResults: 100,
                             queuedMode: true,
+                            filter: filter || undefined,
                             onLog: (msg) => send({ type: 'log', message: msg })
                         }
                         )
+
 
                         const payload = {
                             type: 'stats',

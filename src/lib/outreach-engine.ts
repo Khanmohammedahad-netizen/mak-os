@@ -81,7 +81,7 @@ function isFranchise(name: string): boolean {
 
 // ─── Stage 2: Priority Scoring (Weighted out of 10) ───────────────
 
-function computePriority(lead: GoogleMapsLead): number {
+function computePriority(lead: GoogleMapsLead, filter?: string): number {
     // Component 1 - Rating (max 3.0)
     let ratingScore = 0.5
     if (lead.rating) {
@@ -116,6 +116,15 @@ function computePriority(lead: GoogleMapsLead): number {
     else if (socialWeb) gapScore = 1.75
     else gapScore = 1.0 // Base score for having a site before audit
 
+    // --- Dynamic Filter Priority ---
+    if (filter?.toLowerCase().includes('without a website')) {
+        if (!hasWeb || socialWeb) {
+            gapScore += 2.0 // Boost for matching user's specific constraint
+        } else {
+            gapScore -= 5.0 // Heavily deprioritize if they have a website but user wanted those without
+        }
+    }
+
     // Component 5 - Category Multiplier (max 1.0)
     let catScore = 0.5
     if (lead.category) {
@@ -130,6 +139,7 @@ function computePriority(lead: GoogleMapsLead): number {
 
     return Number((ratingScore + reviewScore + recencyScore + gapScore + catScore + claimedScore).toFixed(1))
 }
+
 
 function getPriorityLane(score: number, noWebConfirmed: boolean): PriorityLane {
     if (score < 7.0) return 'rejected'
@@ -246,9 +256,10 @@ export async function runOutreachPipeline(
     categoryOrCategories: string | string[],
     city: string,
     supabase: any,
-    options: { maxResults?: number; dryRun?: boolean; queuedMode?: boolean; onLog?: (msg: string) => void } = {}
+    options: { maxResults?: number; dryRun?: boolean; queuedMode?: boolean; filter?: string; onLog?: (msg: string) => void } = {}
 ): Promise<OutreachResult> {
-    const { maxResults = 20, dryRun = false, queuedMode = false, onLog } = options
+    const { maxResults = 20, dryRun = false, queuedMode = false, filter, onLog } = options
+
     const categories = Array.isArray(categoryOrCategories) ? categoryOrCategories : [categoryOrCategories]
     const logs: string[] = []
 
@@ -340,7 +351,8 @@ export async function runOutreachPipeline(
                 continue
             }
 
-            const priorityScore = computePriority(lead)
+            const priorityScore = computePriority(lead, filter)
+
             const priorityLane = getPriorityLane(priorityScore, !!lead.noWebsiteConfirmed)
 
             if (priorityLane === 'rejected') {

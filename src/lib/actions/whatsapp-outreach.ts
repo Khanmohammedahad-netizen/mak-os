@@ -152,8 +152,14 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead, bypassRegistra
             return { success: false, error: twilio.error_message, errorCode: twilio.error_code }
         }
 
+        const reconstructedBody = `Hi ${lead.name}, I found your business in ${lead.city} and I've created a free website preview for you. Would you like to see it?`
+
         console.log(`[WhatsApp] SUCCESS — SID: ${twilio.sid}, Status: ${twilio.status}`)
-        return { success: true, sid: twilio.sid }
+        return { 
+            success: true, 
+            sid: twilio.sid,
+            body: reconstructedBody 
+        }
     } catch (e: any) {
         console.error(`[WhatsApp] CRITICAL FAILURE — Reason: ${e.message}`)
         return { success: false, error: e.message }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useSupabase } from '@/components/providers/supabase-provider'
 import type { Database } from '@/types/database.types'
-import { X, Bot, Phone, Play, Clock } from 'lucide-react'
+import { X, Bot, Phone, Play, Clock, Eye, ExternalLink, MessageSquare } from 'lucide-react'
 
 type Lead = Database['public']['Tables']['leads']['Row']
 
@@ -16,6 +16,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
     const [selectedLeadForCall, setSelectedLeadForCall] = useState<Lead | null>(null)
     const [customScript, setCustomScript] = useState('')
     const [isInitiatingCall, setIsInitiatingCall] = useState(false)
+    const [selectedLeadForMessage, setSelectedLeadForMessage] = useState<Lead | null>(null)
     const { supabase, session } = useSupabase()
 
     useEffect(() => {
@@ -246,6 +247,15 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
         }
     }
 
+    const renderWhatsAppStatus = (lead: any) => {
+        const status = lead.whatsapp_status
+        if (status === 'sent') return <span className="px-2 py-1 rounded-full text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-200">Sent</span>
+        if (status === 'delivered') return <span className="px-2 py-1 rounded-full text-xs font-medium border bg-green-100 text-green-800 border-green-200">Delivered</span>
+        if (status === 'read') return <span className="px-2 py-1 rounded-full text-xs font-medium border bg-blue-100 text-blue-800 border-blue-200">Read 👁</span>
+        if (status === 'failed') return <span className="px-2 py-1 rounded-full text-xs font-medium border bg-red-100 text-red-800 border-red-200">Failed ✕</span>
+        return null
+    }
+
     // ─── Outreach metrics ──────────────────────────────────────────
     const metrics = {
         total: leads.length,
@@ -361,7 +371,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                             {loading === 'enriching' ? '⏳ Working' : '🔍 Enrich'}
                                         </button>
                                     )}
-                                    {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && (
+                                    {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && !(lead as any).whatsapp_status && (
                                         <button
                                             onClick={() => handleSendWhatsApp(lead.id)}
                                             disabled={!!loading}
@@ -369,6 +379,17 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                         >
                                             {loading === 'whatsapp' ? '⏳ Sending' : '📲 WhatsApp'}
                                         </button>
+                                    )}
+                                    {(lead as any).whatsapp_status && (
+                                        <div className="flex items-center gap-2 flex-1 justify-center py-2 px-3 rounded-md bg-slate-50 border border-slate-200">
+                                            {renderWhatsAppStatus(lead)}
+                                            <button 
+                                                onClick={() => setSelectedLeadForMessage(lead)}
+                                                className="p-1 hover:bg-slate-200 rounded transition"
+                                            >
+                                                <Eye className="w-4 h-4 text-slate-500" />
+                                            </button>
+                                        </div>
                                     )}
                                     {lead.phone && !['contacted', 'wa_sent'].includes(lead.status) && (
                                         <button
@@ -462,7 +483,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                 )}
 
                                                 {/* Send WhatsApp button */}
-                                                {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && (
+                                                {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && !(lead as any).whatsapp_status && (
                                                     <button
                                                         onClick={() => handleSendWhatsApp(lead.id)}
                                                         disabled={!!loading}
@@ -472,16 +493,17 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                     </button>
                                                 )}
 
-                                                {lead.status === 'wa_sent' && (
-                                                    <span className="text-xs px-3 py-1.5 text-emerald-600 font-semibold">✅ Contacted (WA)</span>
-                                                )}
-                                                
-                                                {lead.status === 'bad_data' && (
-                                                    <span className="text-xs px-3 py-1.5 text-red-400">⚠️ Bad Phone</span>
-                                                )}
-                                                
-                                                {lead.status === 'unreachable' && (
-                                                    <span className="text-xs px-3 py-1.5 text-gray-400">🔇 Unreachable</span>
+                                                {(lead as any).whatsapp_status && (
+                                                    <div className="flex items-center gap-2">
+                                                        {renderWhatsAppStatus(lead)}
+                                                        <button 
+                                                            onClick={() => setSelectedLeadForMessage(lead)}
+                                                            className="p-1.5 hover:bg-slate-100 rounded-md transition text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200"
+                                                            title="View Message Details"
+                                                        >
+                                                            <Eye className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
                                                 )}
 
                                                 {/* Send Email button */}
@@ -558,6 +580,68 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
 
                             <p className="text-center text-xs text-slate-400 font-medium px-4">
                                 Once confirmed, Bland.ai will dial immediately. The call will be logged under {operatorName}'s session.
+                            </p>
+                        </div>
+                    </div>
+                </>
+            )}
+            {/* ─── WhatsApp Message Viewer Modal ─── */}
+            {selectedLeadForMessage && (
+                <>
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] animate-in fade-in duration-300" onClick={() => setSelectedLeadForMessage(null)} />
+                    <div className="fixed left-0 right-0 bottom-0 md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 z-[111] bg-white rounded-t-3xl md:rounded-3xl shadow-2xl p-6 md:w-[520px] animate-in slide-in-from-bottom duration-300">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="h-12 w-12 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+                                    <MessageSquare className="h-6 w-6 text-blue-600" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-xl text-slate-900">WhatsApp Details</h3>
+                                    <p className="text-sm text-slate-500 font-medium">Recipient: {selectedLeadForMessage.company}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedLeadForMessage(null)} className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Status</div>
+                                    <div className="flex items-center gap-2">
+                                        <div className={`h-2 w-2 rounded-full ${
+                                            (selectedLeadForMessage as any).whatsapp_status === 'read' ? 'bg-blue-500' : 
+                                            (selectedLeadForMessage as any).whatsapp_status === 'delivered' ? 'bg-green-500' : 'bg-yellow-500'
+                                        }`} />
+                                        <span className="font-bold text-slate-700 capitalize">{(selectedLeadForMessage as any).whatsapp_status}</span>
+                                    </div>
+                                </div>
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Phone</div>
+                                    <div className="font-bold text-slate-700">{selectedLeadForMessage.phone}</div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">Message Content</label>
+                                <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-700 text-[15px] leading-relaxed italic shadow-inner whitespace-pre-wrap">
+                                    {(selectedLeadForMessage as any).whatsapp_message_body || "Message content not captured."}
+                                </div>
+                            </div>
+
+                            <a 
+                                href={`https://console.twilio.com/us1/monitor/logs/sms?messageId=${(selectedLeadForMessage as any).whatsapp_message_sid}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl shadow-xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+                            >
+                                <ExternalLink className="h-5 w-5" />
+                                View in Twilio Console
+                            </a>
+
+                            <p className="text-center text-[11px] text-slate-400 font-medium px-4">
+                                SID: {(selectedLeadForMessage as any).whatsapp_message_sid}
                             </p>
                         </div>
                     </div>

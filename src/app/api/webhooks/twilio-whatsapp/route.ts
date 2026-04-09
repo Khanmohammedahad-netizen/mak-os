@@ -28,18 +28,57 @@ export async function POST(req: Request) {
         if (status === 'failed' || status === 'undelivered') sendStatus = 'failed'
         if (status === 'delivered' || status === 'read') sendStatus = 'sent' // Still 'sent' but we track wa_status
 
-        const { error } = await supabase
+        // 1. Update Outreach Log & Get Lead ID
+        let leadId: string | null = null
+
+        const { data: log, error: logError } = await supabase
             .from('outreach_log')
             .update({
+                whatsapp_status: status,
                 wa_status: status,
                 send_status: sendStatus,
                 failure_reason: errorMessage || null
             })
-            .eq('message_sid', sid)
+            .eq('whatsapp_message_sid', sid)
+            .select('lead_id')
+            .single()
 
-        if (error) {
-            console.error('[TwilioWebhook] Database update error:', error)
-            return NextResponse.json({ error: 'DB Update Failed' }, { status: 500 })
+        if (!logError && log) {
+            leadId = log.lead_id
+        } else {
+            // Try fallback to message_sid (old column)
+            const { data: logFallback, error: fallbackError } = await supabase
+                .from('outreach_log')
+                .update({
+                    whatsapp_status: status,
+                    wa_status: status,
+                    send_status: sendStatus,
+                    failure_reason: errorMessage || null
+                })
+                .eq('message_sid', sid)
+                .select('lead_id')
+                .single()
+            
+            if (logFallback) {
+                leadId = logFallback.lead_id
+            }
+        }
+
+        if (!leadId) {
+            console.error('[TwilioWebhook] Log not found for SID:', sid)
+            return NextResponse.json({ error: 'Log not found' }, { status: 404 })
+        }
+
+        // 2. Update Lead record for real-time UI updates
+        const { error: leadError } = await supabase
+            .from('leads')
+            .update({
+                whatsapp_status: status
+            })
+            .eq('id', leadId)
+
+        if (leadError) {
+            console.error('[TwilioWebhook] Lead update error:', leadError)
         }
 
         return NextResponse.json({ success: true })

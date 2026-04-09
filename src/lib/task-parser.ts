@@ -115,71 +115,87 @@ const DEFAULT_CATEGORIES = [
 ]
 
 export interface ParsedTask {
-    city: string
+    city: string | null
     categories: string[]
+    filter?: string | null
     isGeneric: boolean
     rawInput: string
+    error?: string
 }
 
 export function parseTaskInput(input: string): ParsedTask {
     const lower = input.toLowerCase().trim()
 
-    // ── Extract city ──
-    // Match: "in [city]" optionally followed by "without", "with", "that", "no"
-    const cityPatterns = [
-        /\bin\s+([a-zA-Z\s]+?)(?:\s+without|\s+with\s+no|\s+that\s+have|\s+no\s+website|,|\.|$)/i,
-        /\bin\s+([a-zA-Z\s]+?)$/i,
+    // ── Check for generic input ──
+    const GENERIC_TERMS = [
+        'businesses', 'business', 'companies', 'shops',
+        'places', 'stores', 'local businesses', 'any business', 'all'
+    ]
+    const DEFAULT_CATEGORIES = [
+        'restaurant', 'cafe', 'barbershop', 'hair salon', 'gym',
+        'auto repair shop', 'dental clinic', 'retail store',
+        'contractor', 'photography studio'
     ]
 
-    let city = 'chicago' // absolute fallback
-    for (const pattern of cityPatterns) {
-        const match = lower.match(pattern)
-        if (match?.[1]?.trim()) {
-            city = match[1].trim()
-            break
-        }
-    }
-
-    // Clean city: remove trailing words that aren't part of city name
-    city = city.replace(/\b(without|with|that|no|website|websites)\b.*$/i, '').trim()
-
-    // ── Check for generic input ──
-    // Use word boundaries so "all" doesn't match inside "Dallas"
     const isGeneric = GENERIC_TERMS.some(term => new RegExp(`\\b${term}\\b`, 'i').test(lower))
     if (isGeneric) {
+        // Find city even in generic
+        const cityMatch = lower.match(/\bin\s+([a-zA-Z\s]+?)(?:\s+|$)/i)
         return {
-            city,
+            city: cityMatch?.[1]?.trim() || 'chicago',
             categories: DEFAULT_CATEGORIES,
             isGeneric: true,
             rawInput: input
         }
     }
 
-    // ── Extract specific category ──
-    let foundCategory: string | null = null
+    // ── Dynamic Extraction ──
+    // Regex: [category] in [city] [filter]
+    const match = lower.match(/^(.+?)\s+in\s+([a-zA-Z\s]+?)(?:\s+(without.+))?$/i)
 
-    // Check multi-word phrases first (longer matches take priority)
-    const sortedEntries = Object.entries(CATEGORY_MAP)
-        .sort((a, b) => b[0].length - a[0].length)
+    if (match) {
+        const category = match[1].trim()
+        const city = match[2].trim()
+        const filter = match[3]?.trim() || null
 
-    for (const [keyword, mapped] of sortedEntries) {
-        if (lower.includes(keyword)) {
-            foundCategory = mapped
-            break
+        return {
+            city,
+            categories: [category],
+            filter,
+            isGeneric: false,
+            rawInput: input
         }
     }
 
-    // If nothing matched, default to restaurant but LOG a warning
-    if (!foundCategory) {
-        console.warn(`[TaskParser] No category matched for input: "${input}" — defaulting to restaurant`)
-        foundCategory = 'restaurant'
+    // ── Backward Compatibility / Fallback ──
+    // If "in" is not found, we signal that we need more info
+    if (!lower.includes(' in ')) {
+        return {
+            city: null,
+            categories: [],
+            isGeneric: false,
+            rawInput: input,
+            error: 'Missing "in" keyword. Please use format: "[business type] in [city]"'
+        }
+    }
+
+    // Last ditch: try to just get city if only one "in" exists
+    const simpleMatch = lower.match(/(.+)\s+in\s+([a-zA-Z\s]+)$/i)
+    if (simpleMatch) {
+        return {
+            city: simpleMatch[2].trim(),
+            categories: [simpleMatch[1].trim()],
+            isGeneric: false,
+            rawInput: input
+        }
     }
 
     return {
-        city,
-        categories: [foundCategory],
+        city: null,
+        categories: [],
         isGeneric: false,
-        rawInput: input
+        rawInput: input,
+        error: 'Could not parse task. Please use format: "[business type] in [city]"'
     }
 }
 
@@ -187,3 +203,4 @@ export function parseTaskInput(input: string): ParsedTask {
 export function parseTask(input: string) {
     return parseTaskInput(input)
 }
+

@@ -113,6 +113,9 @@ export type Database = {
                     message_id: string | null
                     outreach_message: string | null
                     priority_score: number | null
+                    whatsapp_status: string | null
+                    whatsapp_message_sid: string | null
+                    whatsapp_message_body: string | null
                     status: string
                     owner_id: string | null
                 }
@@ -176,6 +179,9 @@ export type Database = {
                     channel: string | null
                     message_sid: string | null
                     wa_status: string | null
+                    whatsapp_status: string | null
+                    whatsapp_message_sid: string | null
+                    whatsapp_message_body: string | null
                     created_at: string
                 }
                 Insert: {

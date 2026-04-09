@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
         // 3. Update lead status if successful
         await supabase.from('leads').update({
             status: 'wa_sent',
+            whatsapp_status: 'sent',
+            whatsapp_message_sid: result.sid,
             contacted_at: new Date().toISOString()
         }).eq('id', lead.id)
 
@@ -55,7 +57,10 @@ export async function POST(request: NextRequest) {
             send_status: 'sent',
             sent_at: new Date().toISOString(),
             channel: 'whatsapp',
-            message_sid: result.sid
+            whatsapp_status: 'sent',
+            whatsapp_message_sid: result.sid,
+            whatsapp_message_body: result.body,
+            message_sid: result.sid // backwards compatibility
         })
 
         return NextResponse.json({
