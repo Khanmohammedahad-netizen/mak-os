@@ -42,15 +42,23 @@ export async function POST(request: NextRequest) {
         }
 
         // 3. Update lead status if successful
-        await supabase.from('leads').update({
+        const { error: updateErr } = await supabase.from('leads').update({
             status: 'wa_sent',
             whatsapp_status: 'sent',
             whatsapp_message_sid: result.sid,
             contacted_at: new Date().toISOString()
         }).eq('id', lead.id)
 
+        if (updateErr) {
+            console.error('[Manual WhatsApp] Database Update Error:', updateErr)
+            return NextResponse.json({ 
+                success: false, 
+                error: `Database update failed: ${updateErr.message}. Make sure you have run the SQL migration.` 
+            }, { status: 500 })
+        }
+
         // 4. Log the outreach
-        await supabase.from('outreach_log').insert({
+        const { error: logErr } = await supabase.from('outreach_log').insert({
             lead_id: lead.id,
             business_name: lead.company,
             touch_number: 1,
@@ -62,6 +70,12 @@ export async function POST(request: NextRequest) {
             whatsapp_message_body: result.body,
             message_sid: result.sid // backwards compatibility
         })
+
+        if (logErr) {
+            console.warn('[Manual WhatsApp] Outreach Logging Failed:', logErr)
+            // We don't necessarily abort here if the lead status update succeeded, 
+            // but it's good for debugging missing columns in outreach_log.
+        }
 
         return NextResponse.json({
             success: true,

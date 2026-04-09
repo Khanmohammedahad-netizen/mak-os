@@ -201,7 +201,12 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
             if (data.success) {
                 setLeads((prev) =>
                     prev.map((l) =>
-                        l.id === leadId ? { ...l, status: 'wa_sent' } : l
+                        l.id === leadId ? { 
+                            ...l, 
+                            status: 'wa_sent',
+                            whatsapp_status: 'sent',
+                            whatsapp_message_sid: data.sid
+                        } as any : l
                     )
                 )
             } else {
