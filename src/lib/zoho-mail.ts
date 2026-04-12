@@ -78,29 +78,23 @@ export function buildOutreachVariants(lead: {
     auditCategory?: string
     opportunitySummary?: string
 }): EmailVariant[] {
-    const slug = lead.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-    const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://maksoftware.io'
-    const previewLink = `${domain}/preview/${slug}`
-
     const issue = lead.opportunitySummary || `${lead.company} doesn't currently rely on a dedicated website.`
 
-    // Variant A: Professional Tone (150-180 words target)
+    // Variant A: Professional Tone
     const profSubject = `Quick thought about ${lead.company}'s search presence`
     const profBody = `Hi ${lead.company} team,
 
 I was researching local businesses in ${lead.city} and noticed your profile. ${issue}
 
-Many businesses rely on directory listings, but establishing a direct, fast-loading professional site helps build long-term trust and secures foot traffic from local search maps. Implementing a clean layout with proper mobile support can directly increase your weekly inquiries. 
+Many businesses rely on directory listings, but establishing a direct, fast-loading professional site helps build long-term trust and secures foot traffic from local search maps. Implementing a clean layout with proper mobile support can directly increase your weekly inquiries.
 
-I put together a quick preview of what a new site could look like for you — you can see it here: ${previewLink}
-
-If you are open to improving your digital footprint, feel free to take a look. If this isn't a priority right now, no worries at all.
+If you're open to improving your digital footprint, feel free to reply to this email.
 
 Best regards,
 Mohammed Ahad
 MAK Software Solutions`
 
-    // Variant B: Conversational / Peer Tone (120-150 words target)
+    // Variant B: Conversational / Peer Tone
     const convSubject = `Noticed something about ${lead.company} online`
     const convBody = `Hi there,
 
@@ -108,28 +102,24 @@ I work with local businesses around ${lead.city} and was looking up ${lead.compa
 
 ${issue}
 
-I've seen firsthand how just having a simple, modern page where customers can easily find your hours and services straight from their phones makes a massive difference in steady walk-ins. 
+I've seen firsthand how just having a simple, modern page where customers can easily find your hours and services straight from their phones makes a massive difference in steady walk-ins.
 
-I actually built a quick mockup of what a clean, modern design for ${lead.company} might look like. You can check the preview link here: ${previewLink}
-
-Take a look when you have a minute. If you aren't interested, just let me know and I won't follow up.
+If you're open to improving your digital footprint, feel free to reply to this email.
 
 Best,
 Mohammed Ahad`
 
-    // Variant C: Curiosity Tone (100-130 words target)
+    // Variant C: Curiosity Tone
     const curSubject = `One thing ${lead.company} is missing`
     const curBody = `Hi ${lead.company} team,
 
-Are you currently taking on new customers in ${lead.city}? 
+Are you currently taking on new customers in ${lead.city}?
 
 ${issue}
 
 Customers checking their phones while deciding where to go often click away if they can't find a direct page. Fixing this is usually the fastest way to capture that lost traffic.
 
-I put together a quick preview of what a new site could look like for you — you can see it here: ${previewLink}
-
-Let me know what you think.
+If you're open to improving your digital footprint, feel free to reply to this email.
 
 Thanks,
 Mohammed Ahad`

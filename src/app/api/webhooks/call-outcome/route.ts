@@ -74,7 +74,7 @@ function classifyCallOutcome(data: any, transcripts: any[]): string {
 }
 
 /**
- * Triggers an immediate follow-up SMS containing the actual preview link
+ * Triggers an immediate follow-up SMS
  * after an AI Call concludes with a voicemail or an "interested" outcome.
  */
 async function triggerPostCallSMS(leadId: string, outcome: string) {
@@ -96,20 +96,16 @@ async function triggerPostCallSMS(leadId: string, outcome: string) {
         .eq('touch_number', 1)
         .single()
 
-    const domain = process.env.NEXT_PUBLIC_SITE_URL || 'maksoftware.io'
-    const slug = lead.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-    const link = `${domain}/preview/${slug}`
-
     let smsBody = ''
     if (outcome === 'voicemail') {
-        smsBody = `Hi ${lead.company}! Just left a voicemail. I built the free customized website preview I mentioned. You can view it directly on your phone here: ${link} — Mohammed Ahad`
+        smsBody = `Hi ${lead.company}! Just left a voicemail. I'm a local developer—wanted to chat about how I can help you capture more local customers. My door is open! — Mohammed Ahad`
     } else {
-        smsBody = `Hi, this is Mohammed from the phone call. As promised, here is the free preview link for ${lead.company}: ${link}`
+        smsBody = `Hi, this is Mohammed from our phone call. Great chatting! As mentioned, I'm here if you ever want to discuss improving your digital footprint. — Mohammed Ahad`
     }
 
     // Safety fallback
     if (smsBody.length > 160) {
-        smsBody = `Hi, Mohammed here from the call. Here is the free preview link for ${lead.company}: ${link}`
+        smsBody = `Hi, Mohammed here from the call. Great chatting! Let me know if you ever want to discuss your digital footprint. Best, Mohammed`
     }
 
     // Attempt to pull the cached carrier, otherwise use the multi-send gateway strategy

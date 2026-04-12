@@ -24,7 +24,7 @@ export default function CallsPage() {
     const { supabase } = useSupabase()
     const [phone, setPhone] = useState('')
     const [selectedVoice, setSelectedVoice] = useState('maya')
-    const [script, setScript] = useState(`Hi, is this the owner of {{business_name}}?\n\nMy name is Mohammed. I'm a web designer and I was looking up local businesses in {{city}} — I noticed you don't have a website yet.\n\nI put together a free preview of what a new site could look like for you. Want me to text you the link?`)
+    const [script, setScript] = useState(`Hi, is this the owner of {{business_name}}?\n\nMy name is Mohammed. I'm a web designer and I was looking up local businesses in {{city}} — I noticed you don't have a website yet.\n\nI specialize in helping local businesses capture more customers by optimizing their digital footprint. Are you open to a quick chat about how I can help?`)
     const [status, setStatus] = useState<string | null>(null)
     const [isCalling, setIsCalling] = useState(false)
     const [logs, setLogs] = useState<any[]>([])

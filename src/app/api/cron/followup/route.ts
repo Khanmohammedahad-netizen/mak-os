@@ -47,7 +47,7 @@ export async function GET(request: Request) {
 
             if (log.touch_number === 1 && daysSince >= 4) {
                 shouldSend = true
-                body = `Hi ${log.business_name} team,\n\nJust bumping this to the top of your inbox. Did you get a chance to look at the preview link I sent over?\n\nIf you're too busy right now, just let me know and I'll close out your file.\n\nBest,\nMohammed Ahad`
+                body = `Hi ${log.business_name} team,\n\nJust bumping this to the top of your inbox. Did you get a chance to look at my previous email?\n\nIf you're too busy right now, just let me know and I'll close out your file.\n\nBest,\nMohammed Ahad`
             } else if (log.touch_number === 2 && daysSince >= 6) {
                 shouldSend = true
                 body = `Hi ${log.business_name} team,\n\nI haven't heard back, so I'll assume improving your website isn't a priority right now and stop reaching out.\n\nIf you ever need help capturing more local traffic in the future, my door is open.\n\nThanks,\nMohammed Ahad`

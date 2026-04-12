@@ -566,6 +566,8 @@ export async function runOutreachPipeline(
                     await supabase.from('leads').update({
                         status: 'contacted',
                         contacted_at: new Date().toISOString(),
+                        email_sent_at: new Date().toISOString(),
+                        email_status: 'sent',
                         message_id: resultMail.messageId,
                         outreach_message: gate.selected_body!.substring(0, 500),
                         contact_method: 'emailed',

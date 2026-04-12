@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
         if (textLower.includes('unsubscribe') || textLower.includes('take me off') || textLower.includes('remove me') || textLower.includes('stop emailing')) {
             sentiment = 'unsubscribe'
-        } else if (textLower.includes('interested') || textLower.includes('call me') || textLower.includes('yes') || textLower.includes('sounds good') || textLower.includes('preview')) {
+        } else if (textLower.includes('interested') || textLower.includes('call me') || textLower.includes('yes') || textLower.includes('sounds good')) {
             sentiment = 'positive'
         } else if (textLower.includes('no thanks') || textLower.includes('not interested') || textLower.includes('we are good') || textLower.includes('have a website')) {
             sentiment = 'negative'

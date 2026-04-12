@@ -43,8 +43,9 @@ export async function POST(request: NextRequest) {
 
         // 3. Update lead status if successful
         const { error: updateErr } = await supabase.from('leads').update({
-            status: 'wa_sent',
+            status: 'contacted',
             whatsapp_status: 'sent',
+            whatsapp_sent_at: new Date().toISOString(),
             whatsapp_message_sid: result.sid,
             contacted_at: new Date().toISOString()
         }).eq('id', lead.id)

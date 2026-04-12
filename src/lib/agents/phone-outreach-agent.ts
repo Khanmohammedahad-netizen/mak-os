@@ -65,15 +65,12 @@ export function selectChannel(lead: PhoneLead): ChannelDecision {
  * Executes a specific outreach channel. Returns true if successful.
  */
 async function executeChannel(channel: OutreachChannel, lead: PhoneLead, _context: { touchNumber: number }): Promise<boolean> {
-    const slug = lead.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-
     try {
         if (channel === 'sms_gateway') {
             const smsMsg = await generateSMS({
                 businessName: lead.company,
                 city: lead.city,
-                websiteCategory: lead.website_category,
-                previewSlug: slug
+                websiteCategory: lead.website_category
             })
             const carrierData = await lookupCarrier(lead.phone)
             const result = await sendSMSViaGateway(lead.phone, smsMsg.body, carrierData.carrier)
@@ -95,8 +92,7 @@ async function executeChannel(channel: OutreachChannel, lead: PhoneLead, _contex
             const script = generateCallScript({
                 businessName: lead.company,
                 city: lead.city,
-                websiteCategory: lead.website_category,
-                previewSlug: slug
+                websiteCategory: lead.website_category
             })
             const result = await initiateAICall(lead.phone, script, lead.id)
             return result.success

@@ -74,7 +74,11 @@ export async function POST(request: Request) {
         // 6. Update lead status
         const { error: updateErr } = await supabase
             .from('leads')
-            .update({ status: 'emailed' })
+            .update({ 
+                status: 'contacted',
+                email_status: 'sent',
+                email_sent_at: new Date().toISOString()
+            })
             .eq('id', leadId)
 
         if (updateErr) {

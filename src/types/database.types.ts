@@ -116,6 +116,9 @@ export type Database = {
                     whatsapp_status: string | null
                     whatsapp_message_sid: string | null
                     whatsapp_message_body: string | null
+                    email_sent_at: string | null
+                    email_status: string | null
+                    whatsapp_sent_at: string | null
                     status: string
                     owner_id: string | null
                 }
@@ -137,6 +140,9 @@ export type Database = {
                     outreach_message?: string | null
                     priority_score?: number | null
                     status?: string
+                    email_sent_at?: string | null
+                    email_status?: string | null
+                    whatsapp_sent_at?: string | null
                     owner_id?: string | null
                 }
                 Update: {
@@ -157,6 +163,9 @@ export type Database = {
                     outreach_message?: string | null
                     priority_score?: number | null
                     status?: string
+                    email_sent_at?: string | null
+                    email_status?: string | null
+                    whatsapp_sent_at?: string | null
                     owner_id?: string | null
                 }
                 Relationships: []

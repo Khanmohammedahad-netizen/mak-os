@@ -89,7 +89,7 @@ A professional, mobile-first website for ${opp.business_name} that:
 - SSL secured, mobile responsive, SEO optimized
 
 TIMELINE
-Week 1: Design mockup for your approval
+Week 1: Project kickoff and initial design layout
 Week 2: Build and revise
 Week 3: Launch + Google indexing
 

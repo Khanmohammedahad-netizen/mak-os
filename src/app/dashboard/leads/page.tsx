@@ -7,7 +7,7 @@ export default async function LeadsPage() {
     // Initial server-side fetch for SEO and fast first render
     const { data: leads, error } = await supabase
         .from('leads')
-        .select('*')
+        .select('id, company, email, phone, city, priority_score, status, email_sent_at, email_status, whatsapp_sent_at, whatsapp_status, contacted_at, website_category, whatsapp_message_sid, whatsapp_message_body')
         .order('created_at', { ascending: false })
 
     if (error) {

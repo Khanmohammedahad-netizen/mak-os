@@ -122,7 +122,12 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
             if (data.success) {
                 setLeads((prev) =>
                     prev.map((l) =>
-                        l.id === leadId ? { ...l, status: 'contacted' } : l
+                        l.id === leadId ? { 
+                            ...l, 
+                            status: 'contacted',
+                            email_sent_at: new Date().toISOString(),
+                            email_status: 'sent'
+                        } as any : l
                     )
                 )
             } else {
@@ -149,7 +154,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
             'C': `${lead.company} has a great social presence but no website, so you're invisible on Google in ${lead.city || 'your area'}`
         }[currentLead.website_category as 'A' | 'B' | 'C'] || `${lead.company}'s online presence could be improved to capture more local traffic`
 
-        return `Hi, is this the owner of ${lead.company}?\n\nMy name is ${operatorName}. I'm a web designer and I was looking up ${lead.category || 'local'} businesses in ${lead.city || 'your area'} — I noticed ${issue}.\n\nI put together a completely free preview of what a new site could look like for you. No pitch, just want to know if you'd like me to text you the link.\n\nWould that be alright?`
+        return `Hi, is this the owner of ${lead.company}?\n\nMy name is ${operatorName}. I'm a web designer and I was looking up ${lead.category || 'local'} businesses in ${lead.city || 'your area'} — I noticed ${issue}.\n\nI specialize in helping local businesses capture more customers by optimizing their digital footprint. I'm not trying to sell you anything right now, I just wanted to know if you'd be open to a quick chat about how I can help.\n\nWould that be alright?`
     }
 
     const handleOpenCallModal = (lead: Lead) => {
@@ -203,8 +208,9 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                     prev.map((l) =>
                         l.id === leadId ? { 
                             ...l, 
-                            status: 'wa_sent',
+                            status: 'contacted',
                             whatsapp_status: 'sent',
+                            whatsapp_sent_at: new Date().toISOString(),
                             whatsapp_message_sid: data.sid
                         } as any : l
                     )
@@ -264,8 +270,10 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
     // ─── Outreach metrics ──────────────────────────────────────────
     const metrics = {
         total: leads.length,
-        contacted: leads.filter(l => l.status === 'contacted' || l.status === 'emailed' || l.status === 'wa_sent').length,
-        phoneRequired: leads.filter(l => l.status === 'phone_required' || l.status === 'wa_sent').length,
+        contacted: leads.filter(l => l.email_sent_at != null || l.whatsapp_sent_at != null).length,
+        emailCount: leads.filter(l => l.email_sent_at != null).length,
+        waCount: leads.filter(l => l.whatsapp_sent_at != null).length,
+        phoneRequired: leads.filter(l => l.status === 'phone_required' || (l.phone && !l.email && !l.whatsapp_sent_at)).length,
         queued: leads.filter(l => l.status === 'queued').length,
         qualified: leads.filter(l => l.status === 'qualified' || l.status === 'new').length,
     }
@@ -300,7 +308,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                     </button>
                 </form>
             </div>
-
+ 
             {/* ─── Outreach Metrics Bar ────────────────────────────── */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="bg-white rounded-lg border p-4 text-center">
@@ -314,6 +322,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 <div className="bg-white rounded-lg border p-4 text-center">
                     <div className="text-2xl font-bold text-green-600">{metrics.contacted}</div>
                     <div className="text-xs text-gray-500 mt-1">Contacted</div>
+                    <div className="text-[10px] text-gray-400 mt-1 font-medium">✉ {metrics.emailCount} · 💬 {metrics.waCount}</div>
                 </div>
                 <div className="bg-white rounded-lg border p-4 text-center">
                     <div className="text-2xl font-bold text-orange-600">{metrics.phoneRequired}</div>
@@ -347,24 +356,26 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                         <h3 className="font-bold text-gray-900">{lead.company}</h3>
                                         <p className="text-sm text-gray-500">{lead.city || 'Unknown City'}</p>
                                     </div>
-                                    <span className={`px-2 py-1 flex-shrink-0 rounded-full text-xs font-medium border ${statusStyle(lead.status)}`}>
-                                        {lead.status === 'wa_sent' ? 'contacted (wa)' : lead.status}
-                                    </span>
+                                    <div className="flex flex-col gap-1 items-end">
+                                        <span className={`px-2 py-1 flex-shrink-0 rounded-full text-[10px] font-bold border ${statusStyle(lead.status)}`}>
+                                            {lead.status}
+                                        </span>
+                                        {(() => {
+                                            const emailSent = lead.email_sent_at && lead.email_status === 'sent';
+                                            const waSent = lead.whatsapp_sent_at && ['sent', 'delivered', 'read'].includes((lead as any).whatsapp_status);
+                                            if (!emailSent && !waSent) return null;
+                                            return (
+                                                <div className="flex flex-col gap-0.5 items-end mt-1">
+                                                    {emailSent && <span className="text-[9px] font-bold text-blue-600 flex items-center gap-1">✉ Sent</span>}
+                                                    {waSent && <span className="text-[9px] font-bold text-emerald-700 flex items-center gap-1">💬 {(lead as any).whatsapp_status}</span>}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 mt-1">
                                     <div className="truncate">📧 {lead.email || '—'}</div>
                                     <div className="truncate">📞 {lead.phone || '—'}</div>
-                                    <div className="flex gap-2 items-center">
-                                        Score:
-                                        {lead.priority_score != null ? (
-                                            <span className={`font-mono font-bold ${lead.priority_score >= 70 ? 'text-green-600' : lead.priority_score >= 40 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                                                {lead.priority_score}
-                                            </span>
-                                        ) : '—'}
-                                    </div>
-                                    <div className="text-right text-xs text-gray-500">
-                                        {lead.contacted_at ? new Date(lead.contacted_at).toLocaleDateString() : ''}
-                                    </div>
                                 </div>
                                 <div className="flex gap-2 mt-2 pt-3 border-t">
                                     {!lead.email && !['contacted', 'emailed', 'wa_sent', 'bad_data', 'unreachable'].includes(lead.status) && (
@@ -376,42 +387,52 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                             {loading === 'enriching' ? '⏳ Working' : '🔍 Enrich'}
                                         </button>
                                     )}
-                                    {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && !(lead as any).whatsapp_status && (
-                                        <button
-                                            onClick={() => handleSendWhatsApp(lead.id)}
-                                            disabled={!!loading}
-                                            className="touch-target flex-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
-                                        >
-                                            {loading === 'whatsapp' ? '⏳ Sending' : '📲 WhatsApp'}
-                                        </button>
-                                    )}
-                                    {(lead as any).whatsapp_status && (
-                                        <div className="flex items-center gap-2 flex-1 justify-center py-2 px-3 rounded-md bg-slate-50 border border-slate-200">
-                                            {renderWhatsAppStatus(lead)}
-                                            <button 
-                                                onClick={() => setSelectedLeadForMessage(lead)}
-                                                className="p-1 hover:bg-slate-200 rounded transition"
-                                            >
-                                                <Eye className="w-4 h-4 text-slate-500" />
-                                            </button>
-                                        </div>
-                                    )}
-                                    {lead.phone && !['contacted', 'wa_sent'].includes(lead.status) && (
+
+                                    {/* Mobile Action Buttons */}
+                                    {(() => {
+                                        const emailSent = lead.email_sent_at && lead.email_status === 'sent';
+                                        const waSent = lead.whatsapp_sent_at && ['sent', 'delivered', 'read'].includes((lead as any).whatsapp_status);
+                                        const loading = actionLoading[lead.id];
+
+                                        return (
+                                            <>
+                                                {lead.phone && !waSent && (
+                                                    <button
+                                                        onClick={() => handleSendWhatsApp(lead.id)}
+                                                        disabled={!!loading}
+                                                        className="touch-target flex-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                                                    >
+                                                        {loading === 'whatsapp' ? '⏳ Sending' : '📲 WhatsApp'}
+                                                    </button>
+                                                )}
+                                                {waSent && (
+                                                    <button 
+                                                        onClick={() => setSelectedLeadForMessage(lead)}
+                                                        className="touch-target flex-1 rounded-md bg-slate-50 text-slate-600 border border-slate-200 flex items-center justify-center gap-2"
+                                                    >
+                                                        <Eye className="w-4 h-4" /> View WA
+                                                    </button>
+                                                )}
+                                                {lead.email && !emailSent && (
+                                                    <button
+                                                        onClick={() => handleSendEmail(lead.id)}
+                                                        disabled={!!loading}
+                                                        className="touch-target flex-1 rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition disabled:opacity-50 text-sm"
+                                                    >
+                                                        {loading === 'emailing' ? '⏳ Sending' : '📧 Email'}
+                                                    </button>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+
+                                    {lead.phone && !lead.email_sent_at && !lead.whatsapp_sent_at && (
                                         <button
                                             onClick={() => handleOpenCallModal(lead)}
                                             disabled={!!loading}
                                             className="touch-target flex-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
                                         >
                                             <Phone className="w-4 h-4" /> Call
-                                        </button>
-                                    )}
-                                    {lead.email && !['contacted', 'emailed'].includes(lead.status) && (
-                                        <button
-                                            onClick={() => handleSendEmail(lead.id)}
-                                            disabled={!!loading}
-                                            className="touch-target flex-1 rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition disabled:opacity-50 text-sm"
-                                        >
-                                            {loading === 'emailing' ? '⏳ Sending' : '📧 Email'}
                                         </button>
                                     )}
                                 </div>
@@ -469,10 +490,34 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                 {lead.status === 'wa_sent' ? 'contacted (wa)' : lead.status}
                                             </span>
                                         </td>
-                                        <td className="p-4 text-sm text-gray-500">
-                                            {lead.contacted_at
-                                                ? new Date(lead.contacted_at).toLocaleString()
-                                                : '—'}
+                                        <td className="p-4 text-sm">
+                                            {(() => {
+                                                const emailSent = lead.email_sent_at && lead.email_status === 'sent';
+                                                const waSent = lead.whatsapp_sent_at && ['sent', 'delivered', 'read'].includes((lead as any).whatsapp_status);
+
+                                                if (!emailSent && !waSent) return <span className="text-gray-400 italic">—</span>;
+
+                                                return (
+                                                    <div className="flex flex-col gap-1">
+                                                        {emailSent && (
+                                                            <div 
+                                                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 text-[10px] font-bold w-fit"
+                                                                title={`Email sent ${new Date(lead.email_sent_at!).toLocaleString()}`}
+                                                            >
+                                                                <span>✉</span> Email
+                                                            </div>
+                                                        )}
+                                                        {waSent && (
+                                                            <div 
+                                                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-bold w-fit"
+                                                                title={`WhatsApp ${(lead as any).whatsapp_status} ${new Date(lead.whatsapp_sent_at!).toLocaleString()}`}
+                                                            >
+                                                                <span>💬</span> WA {(lead as any).whatsapp_status === 'delivered' || (lead as any).whatsapp_status === 'read' ? '✓✓' : '✓'}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex gap-2 justify-end">
@@ -488,44 +533,57 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                                                 )}
 
                                                 {/* Send WhatsApp button */}
-                                                {lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && !(lead as any).whatsapp_status && (
-                                                    <button
-                                                        onClick={() => handleSendWhatsApp(lead.id)}
-                                                        disabled={!!loading}
-                                                        className="text-xs px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50"
-                                                    >
-                                                        {loading === 'whatsapp' ? '⏳ Sending...' : '📲 Send WhatsApp'}
-                                                    </button>
-                                                )}
-
-                                                {(lead as any).whatsapp_status && (
-                                                    <div className="flex items-center gap-2">
-                                                        {renderWhatsAppStatus(lead)}
-                                                        <button 
-                                                            onClick={() => setSelectedLeadForMessage(lead)}
-                                                            className="p-1.5 hover:bg-slate-100 rounded-md transition text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200"
-                                                            title="View Message Details"
-                                                        >
-                                                            <Eye className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                {(() => {
+                                                    const waSent = lead.whatsapp_sent_at && ['sent', 'delivered', 'read'].includes((lead as any).whatsapp_status);
+                                                    if (waSent) {
+                                                        return (
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
+                                                                    <span>💬</span> Sent {(lead as any).whatsapp_status === 'delivered' || (lead as any).whatsapp_status === 'read' ? '✓✓' : '✓'}
+                                                                </span>
+                                                                <button 
+                                                                    onClick={() => setSelectedLeadForMessage(lead)}
+                                                                    className="p-1.5 hover:bg-slate-100 rounded-md transition text-slate-400 hover:text-slate-600 border border-transparent hover:border-slate-200"
+                                                                    title="View Message Details"
+                                                                >
+                                                                    <Eye className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (lead.phone && !lead.email && !['contacted', 'wa_sent'].includes(lead.status) && !(lead as any).whatsapp_status) {
+                                                        return (
+                                                            <button
+                                                                onClick={() => handleSendWhatsApp(lead.id)}
+                                                                disabled={!!loading}
+                                                                className="text-xs px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition disabled:opacity-50"
+                                                            >
+                                                                {loading === 'whatsapp' ? '⏳ Sending...' : '📲 Send WhatsApp'}
+                                                            </button>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
 
                                                 {/* Send Email button */}
-                                                {lead.email && !['contacted', 'emailed'].includes(lead.status) && (
-                                                    <button
-                                                        onClick={() => handleSendEmail(lead.id)}
-                                                        disabled={!!loading}
-                                                        className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition disabled:opacity-50"
-                                                    >
-                                                        {loading === 'emailing' ? '⏳ Sending...' : '📧 Send Email'}
-                                                    </button>
-                                                )}
-
-                                                {/* Contacted badge */}
-                                                {(lead.status === 'contacted' || lead.status === 'emailed') && (
-                                                    <span className="text-xs px-3 py-1.5 text-green-600">✅ Contacted</span>
-                                                )}
+                                                {(() => {
+                                                    const emailSent = lead.email_sent_at && lead.email_status === 'sent';
+                                                    if (emailSent) {
+                                                        return <span className="text-xs font-semibold text-blue-600 flex items-center gap-1"><span>✉</span> Sent</span>;
+                                                    }
+                                                    if (lead.email && !['contacted', 'emailed'].includes(lead.status)) {
+                                                        return (
+                                                            <button
+                                                                onClick={() => handleSendEmail(lead.id)}
+                                                                disabled={!!loading}
+                                                                className="text-xs px-3 py-1.5 rounded-md bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition disabled:opacity-50"
+                                                            >
+                                                                {loading === 'emailing' ? '⏳ Sending...' : '📧 Send Email'}
+                                                            </button>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                             </div>
                                         </td>
                                     </tr>
@@ -536,7 +594,7 @@ export function RealtimeLeads({ initialLeads, operatorName }: { initialLeads: Le
                 </div>
             </div>
 
-            {/* ─── Call Preview Modal ─── */}
+            {/* ─── Call Review Modal ─── */}
             {selectedLeadForCall && (
                 <>
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] animate-in fade-in duration-300" onClick={() => setSelectedLeadForCall(null)} />

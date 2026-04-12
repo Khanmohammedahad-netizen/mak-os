@@ -4,7 +4,6 @@ interface CallScriptInput {
     websiteCategory: 'A' | 'B' | 'C' | 'D'
     opportunitySummary?: string
     operatorName?: string
-    previewSlug: string
 }
 
 export function generateCallScript(input: CallScriptInput): string {
@@ -17,15 +16,15 @@ Great — my name is ${operator}, I'm a web developer based in the area. I was a
 
 ${getIssueStatement(input.websiteCategory, input.businessName, input.city)}
 
-I actually put together a free preview of what a highly optimized website could look like for you — took me about 20 minutes. I'm not trying to sell you anything right now, I just want to know if you'd want to see it contextually.
+I'm specialized in helping businesses in ${input.city} capture more customers by optimizing their digital footprint. I'm not trying to sell you anything right now, I just want to know if you'd be open to a quick 5-minute chat about how we can help.
 
-Can I text you the link? It's completely free to look at.
+Is that something you'd be interested in?
 
-[IF YES]: Perfect, I'll send it to this number right now. Have a great day!
+[IF YES]: Perfect, I'll send you an email with some more details and we can go from there. Have a great day!
 
 [IF NO]: Totally understand. I'll leave you to it — have a great day either way!
 
-[VOICEMAIL]: Hi, this is ${operator}, I'm a local web developer and I put together a free customized website preview for ${input.businessName}. No strings attached at all — I'll send a text with the link right after this. Feel free to ignore it if it's not relevant. Thanks!
+[VOICEMAIL]: Hi, this is ${operator}, I'm a local web developer. I was checking out ${input.businessName}'s online presence and noticed a few ways you could be getting more traffic. No strings attached — I just wanted to reach out. Feel free to call me back if you're interested. Thanks!
 `
 }
 

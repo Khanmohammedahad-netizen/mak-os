@@ -152,9 +152,20 @@ export async function triggerWhatsAppOutreach(lead: WhatsAppLead, bypassRegistra
             return { success: false, error: twilio.error_message, errorCode: twilio.error_code }
         }
 
-        const reconstructedBody = `Hi ${lead.name}, I found your business in ${lead.city} and I've created a free website preview for you. Would you like to see it?`
+        const reconstructedBody = `Hi ${lead.name}, I found your business in ${lead.city} and I'm a local developer. I'd love to chat about how I can help you capture more local customers.`
 
         console.log(`[WhatsApp] SUCCESS — SID: ${twilio.sid}, Status: ${twilio.status}`)
+
+        // Persist outreach status to Supabase
+        await supabase
+            .from('leads')
+            .update({
+                whatsapp_sent_at: new Date().toISOString(),
+                whatsapp_status: 'sent',
+                status: 'contacted'
+            })
+            .eq('id', lead.id);
+
         return { 
             success: true, 
             sid: twilio.sid,

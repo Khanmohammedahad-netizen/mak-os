@@ -7,7 +7,6 @@ interface SMSInput {
     websiteCategory: 'A' | 'B' | 'C' | 'D'
     opportunitySummary?: string
     operatorName?: string
-    previewSlug: string
 }
 
 interface SMSOutput {
@@ -25,16 +24,16 @@ export async function generateSMS(input: SMSInput): Promise<SMSOutput> {
     let body = ''
 
     if (input.websiteCategory === 'A' || input.websiteCategory === 'D') {
-        body = `${input.businessName} — looked up businesses in ${input.city} & couldn't find your site. Built you a free preview. Worth a look? Reply YES — ${operator}`
+        body = `${input.businessName} — looked up businesses in ${input.city} & couldn't find your site. Worth a chat about how we could help? — ${operator}`
     } else if (input.websiteCategory === 'B') {
-        body = `${input.businessName} — your site doesn't load right on phones. Built a quick upgrade preview. Worth a look? Reply YES to see it — ${operator}`
+        body = `${input.businessName} — your site doesn't load right on phones. I'm helping businesses in ${input.city} fix this to get more customers. Interested? — ${operator}`
     } else if (input.websiteCategory === 'C') {
-        body = `${input.businessName} — great info online but no website. I made a preview that could bring you bookings. Want it? Reply YES — ${operator}`
+        body = `${input.businessName} — great info online but no website. I help local businesses in ${input.city} capture that search traffic. Want to hear more? — ${operator}`
     }
 
     // Safety fallback
     if (body.length > 130) {
-        body = `Hi ${input.businessName}. I built a free website preview for you to help get more local customers in ${input.city}. Want to see the link? Reply YES.`
+        body = `Hi ${input.businessName}. I'm helping businesses in ${input.city} get more local customers by optimizing their digital footprint. Interested in a chat?`
     }
 
     return {
