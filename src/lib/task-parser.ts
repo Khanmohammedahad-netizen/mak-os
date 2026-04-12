@@ -138,10 +138,33 @@ export function parseTaskInput(input: string): ParsedTask {
     ]
 
     const isGeneric = GENERIC_TERMS.some(term => new RegExp(`\\b${term}\\b`, 'i').test(lower))
-    if (isGeneric) {
+    
+    // ── Dynamic Extraction (Attempt before generic fallback) ──
+    const match = lower.match(/^(.+?)\s+in\s+([a-zA-Z\s]+?)(?:\s+(without.+))?$/i)
+    let parsed: ParsedTask | null = null
+
+    if (match) {
+        const categoryRaw = match[1].trim()
+        const city = match[2].trim()
+        const filter = match[3]?.trim() || null
+        
+        // Clean generic terms from extracted category (e.g. "Real estate companies" -> "Real estate")
+        let category = categoryRaw
+        GENERIC_TERMS.forEach(term => {
+            category = category.replace(new RegExp(`\\b${term}\\b`, 'gi'), '').trim()
+        })
+
+        parsed = {
+            city,
+            categories: [category || categoryRaw],
+            filter,
+            isGeneric: false, // It's specific enough if we have a category
+            rawInput: input
+        }
+    } else if (isGeneric) {
         // Find city even in generic
         const cityMatch = lower.match(/\bin\s+([a-zA-Z\s]+?)(?:\s+|$)/i)
-        return {
+        parsed = {
             city: cityMatch?.[1]?.trim() || 'chicago',
             categories: DEFAULT_CATEGORIES,
             isGeneric: true,
@@ -149,22 +172,9 @@ export function parseTaskInput(input: string): ParsedTask {
         }
     }
 
-    // ── Dynamic Extraction ──
-    // Regex: [category] in [city] [filter]
-    const match = lower.match(/^(.+?)\s+in\s+([a-zA-Z\s]+?)(?:\s+(without.+))?$/i)
-
-    if (match) {
-        const category = match[1].trim()
-        const city = match[2].trim()
-        const filter = match[3]?.trim() || null
-
-        return {
-            city,
-            categories: [category],
-            filter,
-            isGeneric: false,
-            rawInput: input
-        }
+    if (parsed) {
+        console.log('[TaskParser] Raw result:', JSON.stringify(parsed))
+        return parsed
     }
 
     // ── Backward Compatibility / Fallback ──

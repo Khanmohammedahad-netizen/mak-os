@@ -112,6 +112,7 @@ export async function POST(request: Request) {
                         const { supabaseAdmin } = await import('@/lib/supabase-admin')
 
                         const parsed = parseTaskInput(description)
+                        console.log('[TaskParser] Raw NLQuery result:', JSON.stringify(parsed))
                         const { categories, city: region, filter, error } = parsed
 
                         if (error || categories.length === 0) {
